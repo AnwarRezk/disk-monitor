@@ -36,6 +36,7 @@ try
         .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
         .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
         .Enrich.FromLogContext()
+        .Enrich.WithProperty("SourceContext", "DiskMon.Collector")
         .WriteTo.Console()
         .WriteTo.CappedFile(options.LogDirectory, "collector")
         .CreateLogger();
