@@ -62,14 +62,19 @@ try
     builder.Services.AddSingleton<IDbConnectionSource>(db);
     builder.Services.AddSingleton(TimeProvider.System);
 
-    // Volume Samples (DIS-7): the free-space timeline, also handed to Swing detection through the channel.
-    builder.Services.AddSingleton<VolumeSampleStore>();
-    builder.Services.AddSingleton<VolumeSampleChannel>();
-    builder.Services.AddHostedService<VolumeSampler>();
-
-    // Probes, VSS shadow storage included (DIS-12): every 10 min and on demand (probe_now over the pipe).
+    // Probes, VSS shadow storage included (DIS-12): every 10 min, on demand (probe_now over the pipe) and when a
+    // Swing opens or closes.
     builder.Services.AddSingleton<IShadowStorageReader, VssSampler>();
     builder.Services.AddSingleton<ProbeSampler>();
+
+    // Swing detection (DIS-13). Registered before the VolumeSampler: hosted services start in order, and the
+    // detector must reload the previous run's samples before this run stores its first one.
+    builder.Services.AddSingleton<VolumeSampleChannel>();
+    builder.Services.AddHostedService<SwingService>();
+
+    // Volume Samples (DIS-7): the free-space timeline, also handed to Swing detection through the channel.
+    builder.Services.AddSingleton<VolumeSampleStore>();
+    builder.Services.AddHostedService<VolumeSampler>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<ProbeSampler>());
 
     // Collector status for the Tray over the named pipe (DIS-10).
