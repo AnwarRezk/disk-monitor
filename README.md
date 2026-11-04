@@ -41,6 +41,10 @@ and how much is still **Unaccounted**.
 
 DiskMon only watches and explains. It never deletes anything.
 
+<p align="center">
+  <img src="docs/images/swings.png" alt="The Swings tab: each Swing with what changed, the Top Writers and the Unaccounted remainder" width="900">
+</p>
+
 ## How it works
 
 DiskMon is two processes sharing one SQLite database at `%ProgramData%\DiskMon\diskmon.db`:

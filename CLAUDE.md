@@ -31,6 +31,7 @@ Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.gi
 - Timestamps are UTC Unix epoch **milliseconds** (INTEGER); sizes are INTEGER bytes.
 - Schema changes go in new numbered SQL migration files (`NNNN_snake_name.sql`, numbered 1..n without gaps) under `DiskMon.Core/Data/Migrations`, embedded as resources and applied by `Migrator` at collector startup, each in its own transaction. `schema_version` is created by `Migrator`, not by a migration. `PRAGMA journal_mode = WAL` is set by `Db.OpenOrCreate` because it can't run inside a transaction. Never edit an applied migration.
 - Config lists (`Volumes`, `Probes`) start empty and get defaults in `DiskMonOptions.Normalize()`, because the binder appends to pre-filled lists. Add validation for new settings in `DiskMonOptions.Validate()`.
+- The logo's source is `assets/logo.svg` (Violet palette). `assets/diskmon.ico` (16–256 px) is the exe and window icon for both apps; the Tray embeds it plus `logo-128.png` for the dashboard header (`AppIcons`). Regenerate both from the SVG when it changes. The tray icon itself stays the live free-space number. README screenshots live in `docs/images` (take them with `--screenshot`).
 - Log sinks go through `DiskMonLogging.CappedFile(...)` (7 files × 10 MB). The data folder (and its ACL) must exist before the logger is created, since logs live inside it.
 
 ## Architecture
