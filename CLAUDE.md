@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DiskMon is a Windows-only disk-space monitor. `PLAN.md` is the source of truth for design, schema, milestones (M0–M5) and acceptance criteria; read it before starting work, together with `GLOSSARY.md` (use its terms: Swing, Probe, Probe Window, Unaccounted, Downtime…) and `docs/adr/`. **Implement one milestone at a time** and stop for review when its acceptance criteria pass. Don't start the next milestone unprompted.
 
-M0 (scaffolding, Linear DIS-6) has landed: the solution, the full MVP schema as migration `0001`, the data-folder ACL, config binding (`DiskMonOptions`), capped Serilog logs and Windows CI. The Collector creates the DB and then idles; samplers and services arrive in M1–M3. Folders listed under Architecture that don't exist yet (`Analysis/`, `Native/`, `Probes/`, `Ipc/`) are still to come.
+M0 (scaffolding, Linear DIS-6) has landed: the solution, the full MVP schema as migration `0001`, the data-folder ACL, config binding (`DiskMonOptions`), capped Serilog logs and Windows CI. The Collector creates the DB and then idles; samplers and services arrive in M1–M3. `Probes/` (listed under Architecture) is still to come.
 
 ## Commands
 

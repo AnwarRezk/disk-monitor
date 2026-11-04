@@ -18,6 +18,9 @@ internal static class TrayIconRenderer
     /// <summary>The "no data" icon: grey with a question mark.</summary>
     public static Icon RenderUnknown() => Render(Grey, Color.White, "?");
 
+    /// <summary>The "Collector not running" icon: grey with the last known free-space number.</summary>
+    public static Icon RenderStale(string label) => Render(Grey, Color.White, label);
+
     private static Color Fill(FreeSpaceLevel level) => level switch
     {
         FreeSpaceLevel.Red => Red,

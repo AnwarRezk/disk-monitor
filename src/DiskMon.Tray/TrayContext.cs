@@ -2,14 +2,16 @@ using System.Diagnostics;
 using DiskMon.Core.Analysis;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
+using DiskMon.Core.Ipc;
 using Microsoft.Data.Sqlite;
 
 namespace DiskMon.Tray;
 
 /// <summary>
 /// Hidden application context owning the tray icon. Every 30 s it reads the newest Volume Sample from the
-/// database (read-only, never written) and redraws the icon and tooltip. The dashboard and the pipe status
-/// check arrive in later tickets.
+/// database (read-only, never written), pings the Collector over the pipe, and redraws the icon and tooltip:
+/// grey with "Collector not running" when the ping fails or reports no sample in the last 2 minutes.
+/// The dashboard arrives in a later ticket.
 /// </summary>
 internal sealed class TrayContext : ApplicationContext
 {
@@ -19,6 +21,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly string _volume;
     private readonly VolumeSampleStore _samples;
     private readonly ReadOnlyDb _db;
+    private readonly PipeClient _pipe = new();
     private readonly NotifyIcon _icon;
     private readonly System.Windows.Forms.Timer _timer;
     private Icon? _currentIcon;
@@ -58,11 +61,13 @@ internal sealed class TrayContext : ApplicationContext
         _refreshing = true;
         try
         {
+            var ping = Task.Run(PingAsync);
             var reading = await Task.Run(Read);
+            var running = CollectorStatus.IsRunning(await ping, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             if (reading is null)
-                ShowUnknown($"DiskMon: no samples for {_volume} yet");
+                ShowUnknown($"DiskMon: no samples for {_volume} yet" + (running ? "" : "\nCollector not running"));
             else
-                Show(reading.Value.View, reading.Value.Mode, reading.Value.LatestTs);
+                Show(reading.Value.View, running, reading.Value.LatestTs);
         }
         catch (SqliteException ex)
         {
@@ -76,7 +81,20 @@ internal sealed class TrayContext : ApplicationContext
         }
     }
 
-    private (FreeSpaceView View, ReadOnlyOpenMode? Mode, long LatestTs)? Read()
+    /// <summary>The Collector's <c>ping</c> answer, or null when it is unreachable.</summary>
+    private async Task<PipeResponse?> PingAsync()
+    {
+        try
+        {
+            return await _pipe.PingAsync();
+        }
+        catch (Exception ex) when (ex is TimeoutException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private (FreeSpaceView View, long LatestTs)? Read()
     {
         var latest = _samples.Latest(_volume);
         if (latest is null)
@@ -84,16 +102,20 @@ internal sealed class TrayContext : ApplicationContext
 
         var windowStart = latest.Ts - (long)FreeSpaceStatus.ChangeWindow.TotalMilliseconds;
         var baseline = FreeSpaceStatus.ChangeBaseline(latest, _samples.AtOrBefore(_volume, windowStart), _samples.Oldest(_volume));
-        return (FreeSpaceStatus.Describe(latest, baseline, _options.Tray), _db.LastMode, latest.Ts);
+        return (FreeSpaceStatus.Describe(latest, baseline, _options.Tray), latest.Ts);
     }
 
-    private void Show(FreeSpaceView view, ReadOnlyOpenMode? mode, long latestTs)
+    private void Show(FreeSpaceView view, bool collectorRunning, long latestTs)
     {
-        var tooltip = view.Tooltip;
-        // Only a stopped Collector makes the read-only open fail; say so until the pipe status check (DIS-10) lands.
-        if (mode == ReadOnlyOpenMode.Immutable)
-            tooltip += $"\nCollector not running (as of {DateTimeOffset.FromUnixTimeMilliseconds(latestTs).LocalDateTime:g})";
-        SetIcon(TrayIconRenderer.Render(view.Level, view.IconLabel), tooltip);
+        if (collectorRunning)
+        {
+            SetIcon(TrayIconRenderer.Render(view.Level, view.IconLabel), view.Tooltip);
+            return;
+        }
+
+        // Keep the last known number, but grey: it may be stale.
+        var tooltip = view.Tooltip + $"\nCollector not running (as of {DateTimeOffset.FromUnixTimeMilliseconds(latestTs).LocalDateTime:g})";
+        SetIcon(TrayIconRenderer.RenderStale(view.IconLabel), tooltip);
     }
 
     private void ShowUnknown(string tooltip) => SetIcon(TrayIconRenderer.RenderUnknown(), tooltip);
