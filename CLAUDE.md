@@ -17,10 +17,11 @@ dotnet test --filter "FullyQualifiedName~SwingDetector"   # run a subset / singl
 dotnet run --project src/DiskMon.Collector                # run collector as a console app (use an ELEVATED terminal)
 dotnet run --project src/DiskMon.Tray                     # tray UI (normal, non-elevated)
 scripts/install-service.ps1                               # publish self-contained win-x64 + sc.exe create/start (admin)
+installer/build.ps1 -Version 0.1.0                        # DiskMon-Setup-0.1.0.exe via Inno Setup 6 (needs ISCC)
 scripts/simulate-growth.ps1 -SizeGB 2 -Location temp|unprobed -Cleanup   # produce test Swings (admin)
 ```
 
-Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.github/workflows/ci.yml`) runs the same on `windows-latest`. Windows-only tests (ACLs) call `Assert.SkipUnless(OperatingSystem.IsWindows(), …)` so the suite also runs elsewhere. Tests use xUnit v3.
+Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.github/workflows/ci.yml`) runs the same on `windows-latest`, then builds the setup (artifact `DiskMon-Setup-*`). Releasing: run the CI workflow by hand (`workflow_dispatch`) with a `version`, or push a `v*` tag; either tags the commit and publishes a GitHub Release with the setup attached. Windows-only tests (ACLs) call `Assert.SkipUnless(OperatingSystem.IsWindows(), …)` so the suite also runs elsewhere. Tests use xUnit v3.
 
 ## Conventions
 
@@ -31,7 +32,7 @@ Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.gi
 - Timestamps are UTC Unix epoch **milliseconds** (INTEGER); sizes are INTEGER bytes.
 - Schema changes go in new numbered SQL migration files (`NNNN_snake_name.sql`, numbered 1..n without gaps) under `DiskMon.Core/Data/Migrations`, embedded as resources and applied by `Migrator` at collector startup, each in its own transaction. `schema_version` is created by `Migrator`, not by a migration. `PRAGMA journal_mode = WAL` is set by `Db.OpenOrCreate` because it can't run inside a transaction. Never edit an applied migration.
 - Config lists (`Volumes`, `Probes`) start empty and get defaults in `DiskMonOptions.Normalize()`, because the binder appends to pre-filled lists. Add validation for new settings in `DiskMonOptions.Validate()`.
-- The logo's source is `assets/logo.svg` (Violet palette). `assets/diskmon.ico` (16–256 px) is the exe and window icon for both apps; the Tray embeds it plus `logo-128.png` for the dashboard header (`AppIcons`). Regenerate both from the SVG when it changes. The tray icon itself stays the live free-space number. README screenshots live in `docs/images` (take them with `--screenshot`).
+- The logo's source is `assets/logo.svg` (Violet palette). `assets/diskmon.ico` (16–256 px) is the exe and window icon for both apps; the Tray embeds it plus `logo-128.png` for the dashboard header (`AppIcons`). Regenerate both from the SVG when it changes, and the setup's wizard images (`installer/wizard-*.bmp`: the logo on white, and on the #2d2150→#150f23 gradient). The tray icon itself stays the live free-space number. README screenshots live in `docs/images` (take them with `--screenshot`).
 - Log sinks go through `DiskMonLogging.CappedFile(...)` (7 files × 10 MB). The data folder (and its ACL) must exist before the logger is created, since logs live inside it.
 
 ## Architecture
@@ -43,6 +44,10 @@ Two processes sharing one SQLite DB at `%ProgramData%\DiskMon\diskmon.db` (folde
 - **DiskMon.Core**: models, DB/migrations, config (`DiskMonOptions`, bound from `appsettings.json` next to the collector exe), native interop, IPC contracts, probe expansion, analysis.
 
 Swing attribution: probe deltas use the nearest sample ≤ `ts_start` and ≥ `ts_end` (stored as the Swing's Probe Window), keep items with |Δ| ≥ 50 MB; `unaccounted = used_delta − Σ probe deltas`. Process write-byte items are a separate ranking axis and are **not** added to `attributed`.
+
+## Installer
+
+`installer/DiskMon.iss` (Inno Setup 6) mirrors `scripts/install-service.ps1`: same folders, service, HKLM Run value `DiskMonTray` and kept `appsettings.json`. Its service steps live in `installer/service.ps1` (Stop before files are copied, Install after, Remove on uninstall); keep the two install paths in step. Never change the `.iss` `AppId`. The Start menu/desktop shortcut runs `DiskMon.Tray.exe --dashboard`; a second Tray launch signals the running one (named event `Local\DiskMon.Tray.OpenDashboard`) instead of showing a second icon.
 
 ## Gotchas
 

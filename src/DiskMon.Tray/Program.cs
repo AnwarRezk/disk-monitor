@@ -1,3 +1,5 @@
+using DiskMon.Core.Native;
+
 namespace DiskMon.Tray;
 
 internal static class Program
@@ -16,14 +18,26 @@ internal static class Program
             return;
         }
 
+        // --dashboard opens the dashboard window right away (the Start menu and desktop shortcuts pass it).
+        var openDashboard = args.Any(a => a.Equals("--dashboard", StringComparison.OrdinalIgnoreCase));
+
+        // Created before the mutex, so it exists whenever a second launch sees the mutex taken.
+        using var dashboardRequest = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\DiskMon.Tray.OpenDashboard");
+
         // One tray per logon session: the HKLM Run entry and a manual start must not show two icons.
         using var instance = new Mutex(initiallyOwned: true, @"Local\DiskMon.Tray", out var isFirst);
         if (!isFirst)
+        {
+            // The Tray is already running: a shortcut asks it to show its dashboard instead.
+            if (openDashboard)
+            {
+                User32.AllowAnySetForegroundWindow();
+                dashboardRequest.Set();
+            }
             return;
+        }
 
         ApplicationConfiguration.Initialize();
-        // --dashboard opens the dashboard window right away (handy from a terminal or a shortcut).
-        var openDashboard = args.Any(a => a.Equals("--dashboard", StringComparison.OrdinalIgnoreCase));
-        Application.Run(new TrayContext(TrayConfig.Load(), openDashboard));
+        Application.Run(new TrayContext(TrayConfig.Load(), dashboardRequest, openDashboard));
     }
 }

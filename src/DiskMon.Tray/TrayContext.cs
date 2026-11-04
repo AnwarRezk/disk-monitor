@@ -12,7 +12,8 @@ namespace DiskMon.Tray;
 /// Hidden application context owning the tray icon. Every 30 s it reads the newest Volume Sample from the
 /// database (read-only, never written), pings the Collector over the pipe, and redraws the icon and tooltip:
 /// grey with "Collector not running" when the ping fails or reports no sample in the last 2 minutes.
-/// "Open dashboard" (or double-clicking the icon) opens the <see cref="DashboardForm"/>, one window at a time.
+/// "Open dashboard" (or double-clicking the icon) opens the <see cref="DashboardForm"/>, one window at a time, and so
+/// does a later launch with <c>--dashboard</c> (the shortcuts), which signals the running Tray instead of starting a second one.
 /// </summary>
 internal sealed class TrayContext : ApplicationContext
 {
@@ -27,11 +28,21 @@ internal sealed class TrayContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _timer;
     private readonly ToolStripMenuItem _probeNow;
     private Icon? _currentIcon;
+    private readonly Control _uiThread = new();
+    private readonly RegisteredWaitHandle _dashboardRequests;
     private DashboardForm? _dashboard;
     private bool _refreshing;
 
-    public TrayContext(TrayConfig config, bool openDashboard = false)
+    public TrayContext(TrayConfig config, WaitHandle dashboardRequest, bool openDashboard = false)
     {
+        // A hidden control's handle lets the wait callback below marshal onto the UI thread.
+        _uiThread.CreateControl();
+        _dashboardRequests = ThreadPool.RegisterWaitForSingleObject(dashboardRequest, (_, _) =>
+        {
+            if (_uiThread.IsHandleCreated)
+                _uiThread.BeginInvoke(OpenDashboard);
+        }, null, Timeout.Infinite, executeOnlyOnce: false);
+
         _options = config.Options;
         // C: is the default and priority Volume; if config leaves it out, show the first sampled one.
         _volume = _options.Volumes.Contains(DiskMonOptions.DefaultVolume) ? DiskMonOptions.DefaultVolume : _options.Volumes[0];
@@ -194,12 +205,14 @@ internal sealed class TrayContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _dashboardRequests.Unregister(null);
         _timer.Stop();
         _timer.Dispose();
         _dashboard?.Close();
         _icon.Visible = false;
         _icon.Dispose();
         _currentIcon?.Dispose();
+        _uiThread.Dispose();
         base.ExitThreadCore();
     }
 }
