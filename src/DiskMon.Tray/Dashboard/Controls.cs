@@ -193,8 +193,6 @@ internal sealed class DarkListView : ListView
         ForeColor = Theme.Muted, BackColor = Theme.Card, Font = Theme.Body,
     };
 
-    private readonly int _rowHeight;
-
     public DarkListView(int rowHeight = 30)
     {
         View = View.Details;
@@ -209,7 +207,6 @@ internal sealed class DarkListView : ListView
         Font = Theme.Body;
         // A 1 px wide image list is the standard way to set a details ListView's row height.
         SmallImageList = new ImageList { ImageSize = new Size(1, rowHeight) };
-        _rowHeight = rowHeight;
         DoubleBuffered = true;
         Controls.Add(_empty);
     }
@@ -260,6 +257,16 @@ internal sealed class DarkListView : ListView
         UxTheme.TryUseDarkTheme(Handle);
     }
 
+    // The columns always fill the width exactly, so a horizontal scroll bar could only ever come from rounding or a
+    // vertical bar arriving before the re-fit: drop its style whenever the list sizes its frame.
+    protected override void WndProc(ref Message m)
+    {
+        const int WmNcCalcSize = 0x0083;
+        if (m.Msg == WmNcCalcSize && ProportionalColumns)
+            User32.HideHorizontalScrollBar(m.HWnd);
+        base.WndProc(ref m);
+    }
+
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
@@ -284,10 +291,8 @@ internal sealed class DarkListView : ListView
             // A positive Tag is a share of the width; a negative one is a fixed width in pixels.
             var total = Math.Max(1, Columns.Cast<ColumnHeader>().Sum(c => c.Tag is int share and > 0 ? share : 0));
             var fixedWidth = Columns.Cast<ColumnHeader>().Sum(c => c.Tag is int px and < 0 ? -px : 0);
-            // Leave room for a vertical scroll bar the rows are about to bring up, so a horizontal one never appears.
-            var width = ClientSize.Width - 1;
-            if (IsHandleCreated && !User32.HasVerticalScrollBar(Handle) && Items.Count * _rowHeight + 32 > ClientSize.Height)
-                width -= SystemInformation.VerticalScrollBarWidth;
+            // ClientSize already excludes a vertical scroll bar; the horizontal one is suppressed in WndProc.
+            var width = ClientSize.Width;
             var flexible = Math.Max(0, width - fixedWidth);
             foreach (var c in Columns.Cast<ColumnHeader>().Take(Columns.Count - 1))
                 c.Width = c.Tag is int px and < 0 ? -px : Math.Max(48, flexible * (c.Tag is int share ? share : 0) / total);

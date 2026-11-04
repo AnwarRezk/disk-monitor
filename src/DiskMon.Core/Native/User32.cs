@@ -11,11 +11,22 @@ public static partial class User32
     public static partial bool DestroyIcon(nint icon);
 
     private const int GwlStyle = -16;
-    private const long WsVScroll = 0x00200000;
+    private const long WsHScroll = 0x00100000;
 
-    /// <summary>Whether <paramref name="hwnd"/> is showing its vertical scroll bar right now.</summary>
-    public static bool HasVerticalScrollBar(nint hwnd) => (GetWindowLongPtrW(hwnd, GwlStyle) & WsVScroll) != 0;
+    /// <summary>
+    /// Clears <paramref name="hwnd"/>'s horizontal scroll bar style. A list whose columns are always sized to its width
+    /// calls this while it computes its non-client area, so a bar never shows for a pixel of rounding.
+    /// </summary>
+    public static void HideHorizontalScrollBar(nint hwnd)
+    {
+        var style = GetWindowLongPtrW(hwnd, GwlStyle);
+        if ((style & WsHScroll) != 0)
+            SetWindowLongPtrW(hwnd, GwlStyle, style & ~(nint)WsHScroll);
+    }
 
     [LibraryImport("user32.dll", SetLastError = true)]
     private static partial nint GetWindowLongPtrW(nint hwnd, int index);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial nint SetWindowLongPtrW(nint hwnd, int index, nint value);
 }

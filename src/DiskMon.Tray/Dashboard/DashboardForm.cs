@@ -247,7 +247,29 @@ internal sealed class DashboardForm : Form
             }
             var name = max ? "max" : $"{size.Width}x{size.Height}";
             shot.Save(Path.Combine(folder, $"dashboard-{range.Label()}-{tab}-{name}.png"), System.Drawing.Imaging.ImageFormat.Png);
+            File.WriteAllText(Path.Combine(folder, $"dashboard-{range.Label()}-{tab}-{name}.txt"), DescribeLayout());
         }
+    }
+
+    /// <summary>Where the main parts sit, in client pixels, so a screenshot run can say exactly what got which size.</summary>
+    private string DescribeLayout()
+    {
+        string Box(Control? c) => c is null ? "-" : $"{RectangleToClient(c.RectangleToScreen(c.ClientRectangle))} visible={c.Visible}";
+        var lines = new List<string>
+        {
+            $"dpi {DeviceDpi} window {Size} client {ClientSize} state {WindowState}",
+            $"note {_layoutNote}",
+            $"root {Box(_root)} rows [{string.Join(", ", _root?.GetRowHeights() ?? [])}] styles [{string.Join(", ", _root?.RowStyles.Cast<RowStyle>().Select(r => $"{r.SizeType} {r.Height}") ?? [])}]",
+            $"chartCard {Box(_chartCard)}",
+            $"figures {Box(_figures)}",
+            $"legend {Box(_legend)}",
+            $"plot {Box(_plot)}",
+            $"probeList {Box(_probeList)}",
+            $"swingList {Box(_swingList)}",
+            $"writerList {Box(_writerList)}",
+            $"footer {Box(_footer)}",
+        };
+        return string.Join(Environment.NewLine, lines) + Environment.NewLine;
     }
 
     // ---------------------------------------------------------------- layout
