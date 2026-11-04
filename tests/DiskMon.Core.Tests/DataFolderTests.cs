@@ -41,6 +41,9 @@ public sealed class DataFolderTests : IDisposable
     public void Files_created_inside_inherit_Users_read_only()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Folder ACLs are Windows-only.");
+        // Creating a file in the locked folder needs Administrators write access, which is the point
+        // of the ACL. CI runners are elevated; a normal developer shell skips this one.
+        Assert.SkipUnless(IsElevated(), "Needs an elevated process to write into the locked folder.");
         var path = _temp.File("DiskMon");
         DataFolder.EnsureCreated(path);
         var file = Path.Combine(path, "diskmon.db");
@@ -55,6 +58,12 @@ public sealed class DataFolderTests : IDisposable
 
         Assert.Equal(FileSystemRights.ReadAndExecute | FileSystemRights.Synchronize, userRights);
         Assert.Equal(default, userRights & (FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.Delete));
+    }
+
+    private static bool IsElevated()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 
     private static void AssertRights(List<FileSystemAccessRule> rules, WellKnownSidType sid, FileSystemRights expected)
