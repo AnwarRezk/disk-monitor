@@ -1,7 +1,9 @@
 using System.Security.Principal;
+using DiskMon.Collector.Samplers;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
 using DiskMon.Core.Logging;
+using DiskMon.Core.Sampling;
 using DiskMon.Core.Security;
 using Serilog;
 using Serilog.Events;
@@ -54,6 +56,13 @@ try
 
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(db);
+    builder.Services.AddSingleton(TimeProvider.System);
+
+    // Volume Samples (DIS-7): the free-space timeline, also handed to Swing detection through the channel.
+    builder.Services.AddSingleton<VolumeSampleStore>();
+    builder.Services.AddSingleton<VolumeSampleChannel>();
+    builder.Services.AddHostedService<VolumeSampler>();
+
     builder.Services.AddWindowsService(o => o.ServiceName = "DiskMon");
     builder.Services.AddSerilog();
     builder.Services.AddHostedService<DiskMon.Collector.Samplers.ProcessIoSampler>();
