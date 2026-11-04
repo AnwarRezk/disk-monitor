@@ -24,6 +24,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly PipeClient _pipe = new();
     private readonly NotifyIcon _icon;
     private readonly System.Windows.Forms.Timer _timer;
+    private readonly ToolStripMenuItem _probeNow;
     private Icon? _currentIcon;
     private bool _refreshing;
 
@@ -37,6 +38,8 @@ internal sealed class TrayContext : ApplicationContext
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open dashboard", null, (_, _) => OpenDashboard());
+        _probeNow = new ToolStripMenuItem("Probe now", null, async (_, _) => await ProbeNowAsync());
+        menu.Items.Add(_probeNow);
         menu.Items.Add("Open data folder", null, (_, _) => OpenDataFolder());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
@@ -103,6 +106,40 @@ internal sealed class TrayContext : ApplicationContext
         var windowStart = latest.Ts - (long)FreeSpaceStatus.ChangeWindow.TotalMilliseconds;
         var baseline = FreeSpaceStatus.ChangeBaseline(latest, _samples.AtOrBefore(_volume, windowStart), _samples.Oldest(_volume));
         return (FreeSpaceStatus.Describe(latest, baseline, _options.Tray), latest.Ts);
+    }
+
+    /// <summary>
+    /// Asks the Collector to measure every Probe and says when it is done. The item stays disabled meanwhile, and
+    /// the Collector joins overlapping requests into one run anyway.
+    /// </summary>
+    private async Task ProbeNowAsync()
+    {
+        if (!_probeNow.Enabled)
+            return;
+        _probeNow.Enabled = false;
+        _probeNow.Text = "Probing…";
+        try
+        {
+            var response = await Task.Run(() => _pipe.ProbeNowAsync());
+            if (response.Ok)
+            {
+                var errors = response.Errors is > 0 ? $", {response.Errors} with errors (see the Collector log)" : "";
+                _icon.ShowBalloonTip(5_000, "DiskMon", $"Probe run finished: {response.Probes} Probes in {(response.DurationMs ?? 0) / 1000.0:0.#} s{errors}.", ToolTipIcon.Info);
+            }
+            else
+            {
+                _icon.ShowBalloonTip(10_000, "DiskMon", $"Probe run failed: {response.Error}", ToolTipIcon.Warning);
+            }
+        }
+        catch (Exception ex) when (ex is TimeoutException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            _icon.ShowBalloonTip(10_000, "DiskMon", $"Probe now needs the Collector, which did not answer ({ex.Message}).", ToolTipIcon.Warning);
+        }
+        finally
+        {
+            _probeNow.Text = "Probe now";
+            _probeNow.Enabled = true;
+        }
     }
 
     private void Show(FreeSpaceView view, bool collectorRunning, long latestTs)
