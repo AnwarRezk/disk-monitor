@@ -50,6 +50,22 @@ public sealed class VolumeSampleStore(IDbConnectionSource db)
             new { volume });
     }
 
+    /// <summary>Samples for <paramref name="volume"/> with <paramref name="fromTs"/> ≤ ts ≤ <paramref name="toTs"/>, oldest first.</summary>
+    public IReadOnlyList<VolumeSample> Range(string volume, long fromTs, long toTs)
+    {
+        using var connection = db.OpenConnection();
+        return connection.Query<VolumeSample>(
+            $"{Select} WHERE volume = @volume AND ts BETWEEN @fromTs AND @toTs ORDER BY ts",
+            new { volume, fromTs, toTs }).AsList();
+    }
+
+    /// <summary>Every Volume that has at least one sample, in letter order.</summary>
+    public IReadOnlyList<string> Volumes()
+    {
+        using var connection = db.OpenConnection();
+        return connection.Query<string>("SELECT DISTINCT volume FROM volume_samples ORDER BY volume").AsList();
+    }
+
     private const string Select =
         "SELECT ts AS Ts, volume AS Volume, total_bytes AS TotalBytes, free_bytes AS FreeBytes FROM volume_samples";
 }

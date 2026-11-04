@@ -4,6 +4,12 @@ using Microsoft.Data.Sqlite;
 
 namespace DiskMon.Core.Data;
 
+/// <summary>
+/// One program's bytes written and read over a dashboard range: a Top Writers row. <paramref name="ExePath"/> is
+/// its busiest install path; <paramref name="OtherPaths"/> counts other paths under the same name, summed in.
+/// </summary>
+public sealed record WriterTotal(string Name, string? ExePath, long WriteBytes, long ReadBytes, long OtherPaths = 0);
+
 /// <summary>Writes Top Writers to <c>process_io_samples</c>, with process identity deduplicated in <c>processes</c>.</summary>
 public static class ProcessIoStore
 {
@@ -23,6 +29,38 @@ public static class ProcessIoStore
         }
         tx.Commit();
     }
+
+    /// <summary>
+    /// The top <paramref name="count"/> programs by bytes written in samples with <paramref name="fromTs"/> ≤ ts ≤
+    /// <paramref name="toTs"/>, summed over the range. Rows are grouped by program name (case-insensitive), so an
+    /// app that updated into a new versioned folder (WindowsApps, Squirrel) still ranks once; the path shown is the
+    /// one that wrote the most, and <see cref="WriterTotal.OtherPaths"/> counts the rest. Only each interval's
+    /// stored Top Writers count, so a program that rarely made the top 10 is under-counted: a ranking, not a total.
+    /// </summary>
+    public static IReadOnlyList<WriterTotal> TopWriters(SqliteConnection connection, long fromTs, long toTs, int count) =>
+        connection.Query<WriterTotal>(
+            """
+            WITH per_path AS (
+                SELECT p.name AS name, p.exe_path AS exe_path,
+                       SUM(s.write_bytes_delta) AS write_bytes, SUM(s.read_bytes_delta) AS read_bytes
+                FROM process_io_samples s JOIN processes p ON p.id = s.process_id
+                WHERE s.ts BETWEEN @fromTs AND @toTs
+                GROUP BY s.process_id
+            ),
+            ranked AS (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY lower(name) ORDER BY write_bytes DESC, exe_path) AS n,
+                       SUM(write_bytes) OVER (PARTITION BY lower(name)) AS total_write,
+                       SUM(read_bytes) OVER (PARTITION BY lower(name)) AS total_read,
+                       COUNT(*) OVER (PARTITION BY lower(name)) AS paths
+                FROM per_path
+            )
+            SELECT name AS Name, exe_path AS ExePath, total_write AS WriteBytes, total_read AS ReadBytes,
+                   paths - 1 AS OtherPaths
+            FROM ranked WHERE n = 1
+            ORDER BY total_write DESC, name
+            LIMIT @count
+            """,
+            new { fromTs, toTs, count }).AsList();
 
     // Not cached across calls: retention may prune a process row between intervals.
     // "IS" rather than "=" because exe_path is NULL for processes without an image (System, Registry, ...),
