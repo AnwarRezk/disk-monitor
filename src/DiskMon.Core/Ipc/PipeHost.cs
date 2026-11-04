@@ -20,16 +20,25 @@ public sealed class PipeHost(Func<bool, NamedPipeServerStream> createInstance, P
     public async Task RunAsync(CancellationToken token)
     {
         var clients = new List<Task>();
-        var first = true;
+        NamedPipeServerStream? next = createInstance(true);
         try
         {
             while (!token.IsCancellationRequested)
             {
-                var server = createInstance(first);
-                first = false;
+                var server = next!;
+                next = null;
                 try
                 {
                     await server.WaitForConnectionAsync(token);
+                }
+                catch (IOException ex) when (!token.IsCancellationRequested)
+                {
+                    // A client connected and hung up before we started waiting (ERROR_NO_DATA). Drop the instance
+                    // and keep serving; create its replacement first so the name is never free for a squatter.
+                    onClientError?.Invoke(ex);
+                    next = createInstance(false);
+                    await server.DisposeAsync();
+                    continue;
                 }
                 catch
                 {
@@ -39,6 +48,7 @@ public sealed class PipeHost(Func<bool, NamedPipeServerStream> createInstance, P
 
                 clients.RemoveAll(t => t.IsCompleted);
                 clients.Add(ServeAsync(server, token));
+                next = createInstance(false);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -46,6 +56,8 @@ public sealed class PipeHost(Func<bool, NamedPipeServerStream> createInstance, P
         }
         finally
         {
+            if (next is not null)
+                await next.DisposeAsync();
             await Task.WhenAll(clients);
         }
     }
