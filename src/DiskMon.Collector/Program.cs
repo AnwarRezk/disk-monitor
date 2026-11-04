@@ -1,6 +1,4 @@
 using System.Security.Principal;
-using DiskMon.Collector.Samplers;
-using DiskMon.Collector.Services;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
 using DiskMon.Core.Logging;
@@ -58,10 +56,10 @@ try
     builder.Services.AddSingleton(db);
     builder.Services.AddWindowsService(o => o.ServiceName = "DiskMon");
     builder.Services.AddSerilog();
+    builder.Services.AddHostedService<DiskMon.Collector.Samplers.ProcessIoSampler>();
+    builder.Services.AddHostedService<DiskMon.Collector.Services.RetentionService>();
 
-    builder.Services.AddHostedService<ProcessIoSampler>();
-    builder.Services.AddHostedService<RetentionService>();
-
+    // Samplers and services arrive in M1–M3.
     using var host = builder.Build();
     await host.RunAsync();
     return 0;
