@@ -1,3 +1,4 @@
+using DiskMon.Collector.Services;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
 using DiskMon.Core.Sampling;
@@ -12,6 +13,7 @@ public sealed class VolumeSampler(
     DiskMonOptions options,
     VolumeSampleStore store,
     VolumeSampleChannel channel,
+    CollectorHeartbeat heartbeat,
     TimeProvider time,
     ILogger<VolumeSampler> logger) : BackgroundService
 {
@@ -49,6 +51,8 @@ public sealed class VolumeSampler(
             logger.LogInformation("Volume {Volume} is available again; sampling resumed", volume);
 
         store.Insert(result.Samples);
+        if (result.Samples.Count > 0)
+            heartbeat.SampleStored(ts);
         foreach (var sample in result.Samples)
         {
             channel.Writer.TryWrite(sample);

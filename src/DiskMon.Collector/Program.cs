@@ -1,5 +1,6 @@
 using System.Security.Principal;
 using DiskMon.Collector.Samplers;
+using DiskMon.Collector.Services;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
 using DiskMon.Core.Logging;
@@ -65,10 +66,14 @@ try
     builder.Services.AddSingleton<VolumeSampleChannel>();
     builder.Services.AddHostedService<VolumeSampler>();
 
+    // Collector status for the Tray over the named pipe (DIS-10).
+    builder.Services.AddSingleton<CollectorHeartbeat>();
+    builder.Services.AddHostedService<PipeServer>();
+
     builder.Services.AddWindowsService(o => o.ServiceName = "DiskMon");
     builder.Services.AddSerilog();
-    builder.Services.AddHostedService<DiskMon.Collector.Samplers.ProcessIoSampler>();
-    builder.Services.AddHostedService<DiskMon.Collector.Services.RetentionService>();
+    builder.Services.AddHostedService<ProcessIoSampler>();
+    builder.Services.AddHostedService<RetentionService>();
 
     // Hold one connection for the Collector's lifetime so the -wal/-shm files always exist while it runs:
     // the Tray's read-only reader needs them, and only a stopped Collector sends it to the immutable fallback.
