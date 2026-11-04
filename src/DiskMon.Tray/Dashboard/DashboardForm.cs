@@ -580,6 +580,7 @@ internal sealed class DashboardForm : Form
         };
         _swingDetail.Controls.Add(_itemList);
         _swingDetail.Controls.Add(_detailHeader);
+        _swingsPage.Resize += (_, _) => SizeSwingDetail();
         _swingsPage.Controls.Add(_swingList);
         _swingsPage.Controls.Add(_swingDetail);
     }
@@ -1360,7 +1361,13 @@ internal sealed class DashboardForm : Form
 
     private const int DetailHeaderHeight = 46;
     private const int ItemChangeWidth = 300;
-    private const int DetailRowsShown = 7;
+    private const int DetailRowsShown = 8;
+
+    /// <summary>Top Writers listed in a Swing's detail; the Top Writers tab has the full ranking.</summary>
+    private const int DetailWritersShown = 5;
+
+    /// <summary>Swing rows kept visible above the detail, so selecting a Swing never hides the others.</summary>
+    private const int SwingRowsKept = 4;
 
     private const string UnaccountedHint = "Hidden system storage (VSS, pagefile) or locations not covered by probes";
 
@@ -1388,7 +1395,7 @@ internal sealed class DashboardForm : Form
         // Keep the selected row across the 30 s refresh.
         var kept = _itemList.SelectedItems.Count > 0 ? _itemList.SelectedItems[0].SubItems[1].Text + "|" + _itemList.SelectedItems[0].SubItems[0].Text : null;
         var probes = items.Where(i => i.Source != Attribution.ProcessSource).ToList();
-        var writers = items.Where(i => i.Source == Attribution.ProcessSource).ToList();
+        var writers = items.Where(i => i.Source == Attribution.ProcessSource).Take(DetailWritersShown).ToList();
         var largest = Math.Max(1, probes.Select(i => Math.Abs(i.DeltaBytes)).Append(Math.Abs(swing.UnaccountedBytes ?? 0)).Max());
         var largestWriter = Math.Max(1, writers.Select(i => i.DeltaBytes).DefaultIfEmpty(1).Max());
 
@@ -1396,9 +1403,6 @@ internal sealed class DashboardForm : Form
         _itemList.Items.Clear();
         foreach (var i in probes)
             AddDetailRow(i.Source == "usn" ? "File" : "Probe", i.Label, i.Path, new DetailRow("probe", i.DeltaBytes, i.Path, Math.Abs(i.DeltaBytes) / (double)largest), i.Path);
-        foreach (var w in writers)
-            AddDetailRow("Top Writer", w.Label, w.Path, new DetailRow("process", w.DeltaBytes, w.Path, w.DeltaBytes / (double)largestWriter),
-                (w.Path ?? w.Label) + "\nBytes written during the Swing: a ranking signal, not bytes on disk (not counted in Attributed).");
         if (swing.Stage == "closed")
         {
             var note = swing.ProbeWindowStart is null
@@ -1406,22 +1410,44 @@ internal sealed class DashboardForm : Form
                 : UnaccountedHint;
             AddDetailRow("", "Unaccounted", note, new DetailRow("unaccounted", swing.UnaccountedBytes ?? 0, null, Math.Abs(swing.UnaccountedBytes ?? 0) / (double)largest), note);
         }
+        // Top Writers last: the Probe rows and Unaccounted above them add up to the Swing's change in used space.
+        foreach (var w in writers)
+            AddDetailRow("Top Writer", w.Label, w.Path, new DetailRow("process", w.DeltaBytes, w.Path, w.DeltaBytes / (double)largestWriter),
+                (w.Path ?? w.Label) + "\nBytes written during the Swing: a ranking signal, not bytes on disk (not counted in Attributed).");
         foreach (ListViewItem item in _itemList.Items)
             item.Selected = kept is not null && item.SubItems[1].Text + "|" + item.SubItems[0].Text == kept;
         _itemList.EndUpdate();
+        // Start at the top (the Probe items) unless a kept selection is further down.
+        if (_itemList.Items.Count > 0)
+            _itemList.EnsureVisible(_itemList.SelectedIndices.Count > 0 ? _itemList.SelectedIndices[0] : 0);
         _itemList.EmptyText = swing.Stage switch
         {
             "open" => "Free space is still moving. Attribution runs once the Swing settles and the Probes have been measured again.",
             _ => "Attributing… waiting for the Probe run after this Swing's end (it starts as soon as the Swing closes).",
         };
         _itemList.UpdateEmpty();
+        _openLocation.Visible = _itemList.Items.Count > 0;
         _openLocation.Enabled = SelectedItemPath() is not null;
-
-        var rows = Math.Clamp(_itemList.Items.Count, 2, DetailRowsShown);
-        _swingDetail.Height = DetailHeaderHeight + 30 + (rows * 30) + 6;
         _swingDetail.Visible = true;
+        SizeSwingDetail();
+        if (_swingList.SelectedIndices.Count > 0)
+            _swingList.EnsureVisible(_swingList.SelectedIndices[0]);
         _detailHeader.Invalidate();
         PlaceOpenLocation();
+    }
+
+    /// <summary>
+    /// Fits the detail to its rows, but never taller than leaves <see cref="SwingRowsKept"/> Swing rows visible above it.
+    /// </summary>
+    private void SizeSwingDetail()
+    {
+        if (!_swingDetail.Visible && _detailSwing is null)
+            return;
+        var rows = Math.Clamp(_itemList.Items.Count, 2, DetailRowsShown);
+        var wanted = DetailHeaderHeight + 30 + (rows * 30) + 6;
+        var listRows = Math.Clamp(_swingList.Items.Count, 1, SwingRowsKept);
+        var room = _swingsPage.ClientSize.Height - (30 + (listRows * 30) + 4);
+        _swingDetail.Height = Math.Max(DetailHeaderHeight + 30 + 30 + 6, Math.Min(wanted, room));
     }
 
     private void AddDetailRow(string source, string label, string? location, DetailRow row, string? tip)
