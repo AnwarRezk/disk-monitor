@@ -376,7 +376,7 @@ Each milestone ends with its acceptance criteria passing. Stop and review betwee
 - **Probe cost:** a large Chrome or Docker folder can take seconds to scan, so keep a 10-min cadence and per-probe timeouts. Never scan the whole of `C:\`.
 - **Fuzzy Probe Window:** `ts_start` is detected ~15 min late and Probes run every 10 min, so the before-side Probe Sample can be ~25 min before the move. Accepted for the MVP; the UI shows the real window; M4 fixes it.
 - **Process I/O counters** include non-disk I/O. Label them as a ranking signal in the UI.
-- **WSL/Docker vhdx** files grow without ever shrinking. They show up as steady growth rather than Swings; the chart makes that visible.
+- **WSL/Docker vhdx** files grow without ever shrinking. They show up as steady growth rather than Swings; the chart makes that visible. On the author's PC they were ~145 GB of the Probes' 179 GB; see [`docs/space-findings.md`](docs/space-findings.md) for how to reclaim it.
 - **Logical vs allocated size:** the MVP uses logical size. Compressed and sparse files (and the vhdx) may differ.
 - **Our own footprint:** cap logs and apply DB retention. DiskMon must not become a source of growth itself.
 - **SQLite concurrency:** WAL, one writer (the Collector), the Tray read-only (immutable fallback when the Collector is stopped), `busy_timeout=5000`.

@@ -8,8 +8,18 @@ public sealed class PipeClient(string pipeName = PipeProtocol.PipeName)
     /// <summary>The Collector answers <c>ping</c> at once; past this it is treated as not running.</summary>
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    /// How long "Probe now" waits for its run. A typical run takes seconds; each Probe stops at its own timeout
+    /// (60 s by default), so only a run where many Probes time out comes near this.
+    /// </summary>
+    public static readonly TimeSpan ProbeNowTimeout = TimeSpan.FromMinutes(30);
+
     public Task<PipeResponse> PingAsync(CancellationToken token = default) =>
         SendAsync(new PipeRequest(PipeProtocol.Ping), DefaultTimeout, token);
+
+    /// <summary>Asks the Collector to measure every Probe; completes when that run (or the one it joined) is written.</summary>
+    public Task<PipeResponse> ProbeNowAsync(CancellationToken token = default) =>
+        SendAsync(new PipeRequest(PipeProtocol.ProbeNow), ProbeNowTimeout, token);
 
     /// <summary>
     /// Sends <paramref name="request"/> and returns the Collector's response. Throws <see cref="TimeoutException"/>

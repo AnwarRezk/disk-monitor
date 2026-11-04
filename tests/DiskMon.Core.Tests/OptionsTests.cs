@@ -13,7 +13,7 @@ public sealed class OptionsTests
         return DiskMonOptions.Bind(config);
     }
 
-    private static DiskMonOptions BindShippedAppSettings()
+    internal static DiskMonOptions BindShippedAppSettings()
     {
         // The Collector's appsettings.json is linked into this project's output.
         var config = new ConfigurationBuilder()

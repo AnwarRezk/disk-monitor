@@ -9,10 +9,18 @@ public sealed record PipeRequest(string Cmd);
 
 /// <summary>
 /// The Collector's answer: one JSON line. <c>ping</c> fills <see cref="Version"/> and <see cref="LastSampleTs"/>
-/// (UTC epoch ms of the newest Volume Sample, null before the first); a failure sets <see cref="Ok"/> false and
-/// <see cref="Error"/>.
+/// (UTC epoch ms of the newest Volume Sample, null before the first). <c>probe_now</c> fills <see cref="Probes"/>
+/// (Probes measured), <see cref="Errors"/> (how many recorded an error) and <see cref="DurationMs"/>. A failure sets
+/// <see cref="Ok"/> false and <see cref="Error"/>.
 /// </summary>
-public sealed record PipeResponse(bool Ok, string? Version = null, long? LastSampleTs = null, string? Error = null)
+public sealed record PipeResponse(
+    bool Ok,
+    string? Version = null,
+    long? LastSampleTs = null,
+    string? Error = null,
+    int? Probes = null,
+    int? Errors = null,
+    long? DurationMs = null)
 {
     public static PipeResponse Fail(string error) => new(false, Error: error);
 }
@@ -24,6 +32,9 @@ public static class PipeProtocol
     public const string PipeName = "DiskMon";
 
     public const string Ping = "ping";
+
+    /// <summary>Measure every Probe now; answered when the run's Probe Samples are written.</summary>
+    public const string ProbeNow = "probe_now";
 
     /// <summary>Longest request or response line accepted, in bytes. Real messages are well under 200.</summary>
     public const int MaxLineBytes = 4096;

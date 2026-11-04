@@ -14,6 +14,10 @@ public sealed class PipeProtocolTests
             """{"ok":true,"version":"1.0.0+abc","lastSampleTs":1730721600000}""",
             PipeProtocol.Serialize(new PipeResponse(true, "1.0.0+abc", 1_730_721_600_000)));
         Assert.Equal("""{"ok":false,"error":"boom"}""", PipeProtocol.Serialize(PipeResponse.Fail("boom")));
+        Assert.Equal("""{"cmd":"probe_now"}""", PipeProtocol.Serialize(new PipeRequest(PipeProtocol.ProbeNow)));
+        Assert.Equal(
+            """{"ok":true,"probes":52,"errors":1,"durationMs":14200}""",
+            PipeProtocol.Serialize(new PipeResponse(true, Probes: 52, Errors: 1, DurationMs: 14_200)));
     }
 
     [Fact]

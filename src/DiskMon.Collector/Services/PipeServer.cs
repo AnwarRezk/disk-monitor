@@ -1,14 +1,15 @@
 using System.IO.Pipes;
+using DiskMon.Collector.Samplers;
 using DiskMon.Core.Ipc;
 using DiskMon.Core.Security;
 
 namespace DiskMon.Collector.Services;
 
 /// <summary>
-/// Serves the named pipe <c>DiskMon</c> (PLAN §5.5, ADR 0002): one JSON request line, one JSON response line. Only
-/// <c>ping</c> for now; <c>probe_now</c> arrives with the Probes.
+/// Serves the named pipe <c>DiskMon</c> (PLAN §5.5, ADR 0002): one JSON request line, one JSON response line.
+/// <c>ping</c> answers at once; <c>probe_now</c> answers when the Probe run (started or joined) has been written.
 /// </summary>
-public sealed class PipeServer(CollectorHeartbeat heartbeat, ILogger<PipeServer> logger) : BackgroundService
+public sealed class PipeServer(CollectorHeartbeat heartbeat, ProbeSampler probes, ILogger<PipeServer> logger) : BackgroundService
 {
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(10);
 
@@ -17,6 +18,7 @@ public sealed class PipeServer(CollectorHeartbeat heartbeat, ILogger<PipeServer>
         var handler = new PipeCommandHandler(new Dictionary<string, Func<CancellationToken, Task<PipeResponse>>>
         {
             [PipeProtocol.Ping] = _ => Task.FromResult(new PipeResponse(true, CollectorHeartbeat.Version, heartbeat.LastSampleTs)),
+            [PipeProtocol.ProbeNow] = ProbeNowAsync,
         });
         var host = new PipeHost(CreateInstance, handler, ex => logger.LogDebug(ex, "Pipe client dropped"));
 
@@ -42,6 +44,13 @@ public sealed class PipeServer(CollectorHeartbeat heartbeat, ILogger<PipeServer>
                 }
             }
         }
+    }
+
+    private async Task<PipeResponse> ProbeNowAsync(CancellationToken token)
+    {
+        logger.LogInformation("Probe run requested over the pipe");
+        var run = await probes.RunNowAsync(token);
+        return new PipeResponse(true, Probes: run.Probes, Errors: run.Errors, DurationMs: run.DurationMs);
     }
 
     private static NamedPipeServerStream CreateInstance(bool first) =>

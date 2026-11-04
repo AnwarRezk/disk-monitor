@@ -4,6 +4,7 @@ using DiskMon.Collector.Services;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
 using DiskMon.Core.Logging;
+using DiskMon.Core.Probes;
 using DiskMon.Core.Sampling;
 using DiskMon.Core.Security;
 using Microsoft.Data.Sqlite;
@@ -66,6 +67,11 @@ try
     builder.Services.AddSingleton<VolumeSampleChannel>();
     builder.Services.AddHostedService<VolumeSampler>();
 
+    // Probes, VSS shadow storage included (DIS-12): every 10 min and on demand (probe_now over the pipe).
+    builder.Services.AddSingleton<IShadowStorageReader, VssSampler>();
+    builder.Services.AddSingleton<ProbeSampler>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<ProbeSampler>());
+
     // Collector status for the Tray over the named pipe (DIS-10).
     builder.Services.AddSingleton<CollectorHeartbeat>();
     builder.Services.AddHostedService<PipeServer>();
@@ -80,7 +86,6 @@ try
     // (Pooled connections alone may all be pruned between samples, which would delete those files.)
     using var keepAlive = db.OpenConnection();
 
-    // Samplers and services arrive in M1–M3.
     using var host = builder.Build();
     await host.RunAsync();
     return 0;
