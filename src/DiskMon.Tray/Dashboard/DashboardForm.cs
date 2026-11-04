@@ -251,6 +251,38 @@ internal sealed class DashboardForm : Form
         }
     }
 
+    /// <summary>The y range the data needs, and the highest warning line drawn (its label needs room above it).</summary>
+    private (double Floor, double Top, double? Warning)? _yFrame;
+
+    /// <summary>
+    /// Sets the y limits, leaving room above the highest warning line for its label. The room is in pixels, so this
+    /// runs again whenever the plot changes height.
+    /// </summary>
+    private void ApplyYLimits()
+    {
+        if (_yFrame is not { } frame)
+            return;
+        var top = frame.Top;
+        if (frame.Warning is { } warning)
+        {
+            // The data area is the plot minus its axis margins; take the margins from the last render (they don't
+            // change with the height) and apply them to the current height, which may be newer than that render.
+            // ScottPlot lays out in units of pixels ÷ DisplayScale, so work in those.
+            var last = _plot.Plot.RenderManager.LastRender;
+            var scale = Math.Max(1, _plot.DisplayScale);
+            var margins = last.DataRect.Height > 0 ? last.FigureRect.Height - last.DataRect.Height : 48;
+            var dataPx = Math.Max(40, _plot.Height / scale - margins);
+            const double labelPx = 24;
+            // Solve top so the warning sits labelPx below it: (top - warning) / (top - floor) = labelPx / dataPx.
+            var share = Math.Min(0.6, labelPx / dataPx);
+            var needed = (warning - share * frame.Floor) / (1 - share);
+            top = Math.Max(top, needed);
+        }
+        if (_yTicks is not null)
+            _yTicks.IntegerTicksOnly = top - frame.Floor >= 3;
+        _plot.Plot.Axes.SetLimitsY(frame.Floor, top);
+    }
+
     /// <summary>Where the main parts sit, in client pixels, so a screenshot run can say exactly what got which size.</summary>
     private string DescribeLayout()
     {
@@ -263,7 +295,7 @@ internal sealed class DashboardForm : Form
             $"chartCard {Box(_chartCard)}",
             $"figures {Box(_figures)}",
             $"legend {Box(_legend)}",
-            $"plot {Box(_plot)}",
+            $"plot {Box(_plot)} scale {_plot.DisplayScale} figure {_plot.Plot.RenderManager.LastRender.FigureRect} data {_plot.Plot.RenderManager.LastRender.DataRect} y {_plot.Plot.Axes.GetLimits().Bottom:0.##}..{_plot.Plot.Axes.GetLimits().Top:0.##}",
             $"probeList {Box(_probeList)}",
             $"swingList {Box(_swingList)}",
             $"writerList {Box(_writerList)}",
@@ -616,7 +648,13 @@ internal sealed class DashboardForm : Form
             var rendered = watch.Elapsed;
             BeginInvoke(() => _footer.Text += $" · chart drawn in {rendered.TotalMilliseconds:0} ms");
         };
-        _plot.Resize += (_, _) => UpdateTickDensity();
+        _plot.Resize += (_, _) =>
+        {
+            UpdateTickDensity();
+            // The warning label's headroom is in pixels, so a new height needs new y limits.
+            ApplyYLimits();
+            _plot.Refresh();
+        };
     }
 
     private static readonly (ScottPlot.TickGenerators.ITimeUnit Unit, int Count, double Days)[] TickSteps =
@@ -1048,17 +1086,8 @@ internal sealed class DashboardForm : Form
                 line.FillYColor = Sp(Theme.Fill).WithAlpha(0.28);
                 line.FillYValue = floor;
             }
-            var top = high + pad;
-            if (warnings.Count > 0)
-            {
-                // Room above the highest warning line for its label (about 20 px of the plot's height).
-                var plotPx = Math.Max(60, _plot.Height - 40);
-                var perPx = (top - floor) / plotPx;
-                top = Math.Max(top, highestWarning + (22 * perPx));
-            }
-            if (_yTicks is not null)
-                _yTicks.IntegerTicksOnly = top - floor >= 3;
-            plot.Axes.SetLimitsY(floor, top);
+            _yFrame = (floor, high + pad, warnings.Count > 0 ? highestWarning : null);
+            ApplyYLimits();
         }
         else
         {
@@ -1067,6 +1096,7 @@ internal sealed class DashboardForm : Form
             empty.LabelBackgroundColor = Sp(Theme.PlotGround);
             empty.LabelBorderColor = Sp(Theme.PlotGround);
             empty.Alignment = Alignment.MiddleCenter;
+            _yFrame = null;
             plot.Axes.SetLimitsY(0, 1);
         }
 
