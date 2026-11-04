@@ -561,7 +561,7 @@ internal sealed class TipBox : Control
             g.DrawPath(pen, path);
         }
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
-        TextRenderer.DrawText(g, _top, Theme.MonoSmall, new Rectangle(10, 6, Width - 20, Theme.MonoSmall.Height), Theme.Muted, flags);
+        TextRenderer.DrawText(g, _top, Theme.MonoSmall, new Rectangle(10, 6, Width - 20, Theme.MonoSmall.Height + 2), Theme.Muted, flags);
         TextRenderer.DrawText(g, _main, Theme.BodyStrong, new Rectangle(10, 8 + Theme.MonoSmall.Height, Width - 20, Theme.BodyStrong.Height), Theme.Text, flags);
     }
 }

@@ -108,6 +108,8 @@ internal sealed class DashboardForm : Form
     private int _dragStartPx;
     private long? _copiedProbe;
     private SwingRow? _detailSwing;
+    private string _diagnostics = "";
+    private readonly ToolTip _footerTip = new() { InitialDelay = 600 };
 
     public DashboardForm(DashboardLoader loader, PipeClient pipe, string volume, bool persist = true)
     {
@@ -306,6 +308,7 @@ internal sealed class DashboardForm : Form
         {
             $"dpi {DeviceDpi} window {Size} client {ClientSize} state {WindowState}",
             $"note {_layoutNote}",
+            $"diagnostics {_diagnostics}",
             $"root {Box(_root)} rows [{string.Join(", ", _root?.GetRowHeights() ?? [])}] styles [{string.Join(", ", _root?.RowStyles.Cast<RowStyle>().Select(r => $"{r.SizeType} {r.Height}") ?? [])}]",
             $"chartCard {Box(_chartCard)}",
             $"figures {Box(_figures)}",
@@ -318,6 +321,16 @@ internal sealed class DashboardForm : Form
             $"footer {Box(_footer)}",
         };
         return string.Join(Environment.NewLine, lines) + Environment.NewLine;
+    }
+
+    /// <summary>
+    /// Timings and sizes for whoever is tuning the dashboard: on the footer's tooltip and in the screenshot dumps,
+    /// not in the footer itself.
+    /// </summary>
+    private void SetDiagnostics(string text)
+    {
+        _diagnostics = text;
+        _footerTip.SetToolTip(_footer, text);
     }
 
     // ---------------------------------------------------------------- layout
@@ -380,6 +393,9 @@ internal sealed class DashboardForm : Form
         const int plotMin = 150;
         var chartMin = _chartCard.Padding.Vertical + _figures.Height + 10 + _legend.Height + plotMin;
         var chart = (int)(available * (narrow ? 0.6 : 0.56));
+        // The Swings tab stacks a list and a detail; on a short window the chart steps down to its minimum for them.
+        if (_tab == SwingsTab && available < 760)
+            chart = chartMin;
         chart = Math.Max(chartMin, Math.Min(chart, available - tabsMin));
         var height = Math.Max(chartMin, chart);
         _layoutNote = $"layout {available}: chart {height}, figures {_figures.Height}";
@@ -641,6 +657,8 @@ internal sealed class DashboardForm : Form
         var list = tab switch { SpaceTab => _probeList, SwingsTab => _swingList, _ => _writerList };
         list.FillLastColumn();
         list.UpdateEmpty();
+        if (IsHandleCreated)
+            ApplyProportions();
     }
 
     private static void AddColumns(DarkListView list, params (string Text, int Share, HorizontalAlignment Align)[] columns)
@@ -707,7 +725,7 @@ internal sealed class DashboardForm : Form
                 return;
             _renderWatch = null;
             var rendered = watch.Elapsed;
-            BeginInvoke(() => _footer.Text += $" · chart drawn in {rendered.TotalMilliseconds:0} ms");
+            BeginInvoke(() => SetDiagnostics(_diagnostics + $" · chart drawn in {rendered.TotalMilliseconds:0} ms"));
         };
         _plot.Resize += (_, _) =>
         {
@@ -1183,9 +1201,10 @@ internal sealed class DashboardForm : Form
         _tickSpan = (fromX, toX);
         UpdateTickDensity();
         ShowLegend(s, warnings);
-        _footer.Text = $"updated {DateTime.Now:HH:mm:ss} · read in {s.ReadTime.TotalMilliseconds:0} ms · {_points.Count} points"
+        _footer.Text = $"Updated {DateTime.Now:HH:mm:ss}"
             + (s.Mode == ReadOnlyOpenMode.Immutable ? " · read-only snapshot (Collector stopped)" : "")
-            + (_persist ? "" : $" · {_layoutNote}");
+            + "  ·  F5 refreshes";
+        SetDiagnostics($"read in {s.ReadTime.TotalMilliseconds:0} ms · {_points.Count} points · {_layoutNote}");
         _plot.Refresh();
     }
 
@@ -1265,7 +1284,7 @@ internal sealed class DashboardForm : Form
                 var nameHeight = Theme.Body.Height;
                 var top = cell.Y + Math.Max(2, (cell.Height - nameHeight - Theme.MonoSmall.Height - 2) / 2);
                 TextRenderer.DrawText(g, tag.Probe.Name + (tag.Probe.Error is null ? "" : "  ⚠"), Theme.Body, new Rectangle(cell.X, top, cell.Width, nameHeight), tag.Probe.Error is null ? Theme.Text : Theme.Amber, flags);
-                TextRenderer.DrawText(g, tag.Probe.Path, Theme.MonoSmall, new Rectangle(cell.X, top + nameHeight + 2, cell.Width, Theme.MonoSmall.Height), Theme.Faint,
+                TextRenderer.DrawText(g, tag.Probe.Path, Theme.MonoSmall, new Rectangle(cell.X, top + nameHeight + 2, cell.Width, Theme.MonoSmall.Height + 4), Theme.Faint,
                     TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPadding);
                 return true;
             case 1:
