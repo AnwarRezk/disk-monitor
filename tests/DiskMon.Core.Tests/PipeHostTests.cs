@@ -63,6 +63,36 @@ public sealed class PipeHostTests
     }
 
     [Fact]
+    public async Task A_client_that_hangs_up_before_the_server_waits_does_not_stop_the_server()
+    {
+        // The race from CI: a client connects to a fresh instance and hangs up before WaitForConnectionAsync, which
+        // then fails with ERROR_NO_DATA. Reproduced deterministically by hanging up inside the instance factory.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Needs real Windows named pipes");
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var calls = 0;
+        NamedPipeServerStream CreateWithEarlyHangUp(bool first)
+        {
+            var instance = Create(first);
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                using var rude = new NamedPipeClientStream(".", _name, PipeDirection.InOut);
+                rude.Connect(1000);
+            }
+            return instance;
+        }
+
+        var errors = 0;
+        var server = new PipeHost(CreateWithEarlyHangUp, PingHandler(), _ => Interlocked.Increment(ref errors)).RunAsync(stop.Token);
+
+        Assert.True((await new PipeClient(_name).PingAsync(stop.Token)).Ok);
+        Assert.False(server.IsCompleted);
+        Assert.Equal(1, errors);
+
+        stop.Cancel();
+        await server;
+    }
+
+    [Fact]
     public async Task Ping_times_out_when_nothing_serves_the_pipe()
     {
         var client = new PipeClient(_name);
