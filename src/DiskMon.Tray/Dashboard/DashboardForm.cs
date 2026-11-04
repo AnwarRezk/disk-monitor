@@ -120,6 +120,7 @@ internal sealed class DashboardForm : Form
         _tab = saved.Tab is SpaceTab or SwingsTab or WritersTab ? saved.Tab : SpaceTab;
 
         Text = "DiskMon";
+        Icon = AppIcons.Window;
         MinimumSize = new Size(960, 680);
         Size = new Size(1280, 900);
         StartPosition = FormStartPosition.CenterScreen;
@@ -403,6 +404,21 @@ internal sealed class DashboardForm : Form
             header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         var title = new Label { Text = "DiskMon", AutoSize = true, Font = Theme.Title, ForeColor = Theme.Text, BackColor = Color.Transparent, Margin = new Padding(0, 10, 0, 0) };
+        // The logo beside the name, sized in device pixels so it stays crisp at any DPI (re-made on a DPI change).
+        var logo = new PictureBox { SizeMode = PictureBoxSizeMode.CenterImage, BackColor = Color.Transparent, Margin = new Padding(0, 9, 10, 0) };
+        void SizeLogo()
+        {
+            var px = LogicalToDeviceUnits(30);
+            var old = logo.Image;
+            logo.Image = AppIcons.Logo(px);
+            logo.Size = new Size(px, px);
+            old?.Dispose();
+        }
+        SizeLogo();
+        DpiChanged += (_, _) => SizeLogo();
+        var brand = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Ground, Margin = new Padding(0, 0, 16, 0) };
+        brand.Controls.Add(logo);
+        brand.Controls.Add(title);
         _probesCaption.Margin = new Padding(0, 24, 0, 0);
         _collectorCaption.Margin = new Padding(0, 24, 10, 0);
         _probeNow.Click += async (_, _) => await ProbeNowAsync();
@@ -417,7 +433,7 @@ internal sealed class DashboardForm : Form
         dotAndStatus.Controls.Add(_statusDot);
         dotAndStatus.Controls.Add(_status);
 
-        header.Controls.Add(title, 0, 0);
+        header.Controls.Add(brand, 0, 0);
         header.Controls.Add(_volumeChips, 1, 0);
         header.Controls.Add(_probesCaption, 3, 0);
         header.Controls.Add(_probeInfo, 4, 0);
