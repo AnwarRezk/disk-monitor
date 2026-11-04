@@ -56,6 +56,8 @@ try
     builder.Services.AddSingleton(db);
     builder.Services.AddWindowsService(o => o.ServiceName = "DiskMon");
     builder.Services.AddSerilog();
+    builder.Services.AddHostedService<DiskMon.Collector.Samplers.ProcessIoSampler>();
+    builder.Services.AddHostedService<DiskMon.Collector.Services.RetentionService>();
 
     // Samplers and services arrive in M1–M3.
     using var host = builder.Build();
