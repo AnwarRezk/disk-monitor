@@ -80,7 +80,7 @@ internal sealed class DashboardForm : Form
     private readonly Panel _writersPage = new() { Dock = DockStyle.Fill, BackColor = Theme.Card };
     private readonly RichLine _spaceIntro = new() { Dock = DockStyle.Fill };
     private readonly ProbeTiles _tiles = new() { Dock = DockStyle.Fill };
-    private readonly Panel _tilesHolder = new() { Dock = DockStyle.Top, Height = ProbeTiles.Wanted + 6, Padding = new Padding(20, 2, 20, 4), BackColor = Theme.Card };
+    private readonly Panel _tilesHolder = new() { Dock = DockStyle.Top, Height = 120, Padding = new Padding(20, 2, 20, 4), BackColor = Theme.Card };
     private readonly DarkListView _probeList = new(rowHeight: ProbeRowHeight) { Dock = DockStyle.Fill };
     private readonly ContextMenuStrip _probeMenu = new();
     private readonly DarkListView _swingList = new() { Dock = DockStyle.Fill };
@@ -386,7 +386,7 @@ internal sealed class DashboardForm : Form
         _probeInfo.Visible = !narrow;
         foreach (var intro in _introBars)
             intro.Visible = !narrow;
-        _summary.ColumnStyles[0].Width = narrow ? 300 : 380;
+        _summary.ColumnStyles[0].Width = LogicalToDeviceUnits(narrow ? 310 : 400);
         if (narrow != _wasNarrow && _last is not null)
         {
             _wasNarrow = narrow;
@@ -409,10 +409,31 @@ internal sealed class DashboardForm : Form
         var chart = (int)(available * (narrow ? 0.58 : 0.55));
         chart = Math.Max(chartMin, Math.Min(chart, available - tabsMin));
         var height = Math.Max(chartMin, chart);
-        // The tiles need their two rows plus two Probe rows under them; a short window keeps the list alone.
+        // The tiles get two rows when two Probe rows still fit under them, one row when one row (and a bit) does, else
+        // the list stays alone.
         var tabs = available - height;
-        _tilesHolder.Visible = tabs - 45 - (narrow ? 0 : 38) - _tilesHolder.Height >= 32 + (2 * ProbeRowHeight);
-        _layoutNote = $"layout {available}: chart {height}, tabs {tabs}, tiles {_tilesHolder.Visible}";
+        // The strips and Probe rows are fixed pixel heights (row height comes from the font, already in device pixels).
+        var listRoom = tabs - (45 + (narrow ? 0 : 38) + 32);
+        var full = _tiles.Wanted(compact: false) + LogicalToDeviceUnits(6);
+        var compact = _tiles.Wanted(compact: true) + LogicalToDeviceUnits(6);
+        var row = ProbeRowHeight;
+        if (listRoom - full >= 2 * row)
+        {
+            _tiles.Compact = false;
+            _tilesHolder.Height = full;
+            _tilesHolder.Visible = true;
+        }
+        else if (listRoom - compact >= row + 20)
+        {
+            _tiles.Compact = true;
+            _tilesHolder.Height = compact;
+            _tilesHolder.Visible = true;
+        }
+        else
+        {
+            _tilesHolder.Visible = false;
+        }
+        _layoutNote = $"layout {available}: chart {height}, tabs {tabs}, tiles {(_tilesHolder.Visible ? _tiles.Compact ? "compact" : "full" : "hidden")}";
         if (Math.Abs(_root.RowStyles[1].Height - height) > 0.5f)
         {
             _root.RowStyles[1].Height = height;
@@ -1163,8 +1184,8 @@ internal sealed class DashboardForm : Form
         var of = sum.TotalBytes > 0 ? $"of {SizeText.Gb(sum.TotalBytes)}" : "size unknown";
         var detail = level switch
         {
-            FreeSpaceLevel.Red => narrow ? $"{of} · under red" : $"{of} · under the red level ({SizeText.Gb(red)})",
-            FreeSpaceLevel.Amber => narrow ? $"{of} · under amber" : $"{of} · under the amber level ({SizeText.Gb(amber)})",
+            FreeSpaceLevel.Red => narrow ? $"{of} · below red" : $"{of} · below red ({SizeText.Gb(red)})",
+            FreeSpaceLevel.Amber => narrow ? $"{of} · below amber" : $"{of} · below amber ({SizeText.Gb(amber)})",
             _ => sum.FreePercent is { } pct ? $"{pct.ToString("0.0", CultureInfo.InvariantCulture)}% free {of}" : of,
         };
         var color = level switch { FreeSpaceLevel.Red => Theme.Red, FreeSpaceLevel.Amber => Theme.Amber, _ => Theme.Text };

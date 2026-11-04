@@ -199,7 +199,12 @@ internal sealed class SwingChip : Button
 /// </summary>
 internal sealed class ProbeTiles : Control
 {
-    private const int TopRow = 56, BottomRow = 40, Gap = 6, MinSmall = 96;
+    private const int SmallTilesMax = 8;
+    private int S(int logical) => (int)Math.Round(logical * DeviceDpi / 96.0);
+    private int TopRow => S(58);
+    private int BottomRow => S(38);
+    private int Gap => S(6);
+    private int MinSmall => S(118);
     private readonly List<(ProbeSize Probe, string Title)> _items = [];
     private readonly List<(Rectangle Rect, ProbeSize? Probe, string Title, string Size)> _tiles = [];
     private long? _selected;
@@ -215,8 +220,25 @@ internal sealed class ProbeTiles : Control
 
     public event Action<long>? TileClicked;
 
-    /// <summary>The height the two rows need.</summary>
-    public static int Wanted => Gap + TopRow + Gap + BottomRow + Gap;
+    /// <summary>One row of small tiles only (a short window), instead of the tall top row plus the small one.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Compact
+    {
+        get => _compact;
+        set
+        {
+            if (_compact == value)
+                return;
+            _compact = value;
+            Arrange();
+            Invalidate();
+        }
+    }
+
+    private bool _compact;
+
+    /// <summary>The height the rows need, in device pixels: two rows, or one when <paramref name="compact"/>.</summary>
+    public int Wanted(bool compact) => compact ? Gap + BottomRow + Gap : Gap + TopRow + Gap + BottomRow + Gap;
 
     public void SetItems(IEnumerable<(ProbeSize Probe, string Title)> items)
     {
@@ -256,14 +278,15 @@ internal sealed class ProbeTiles : Control
         if (_items.Count == 0 || width <= 0)
             return;
         var total = Math.Max(1, _items.Sum(i => i.Probe.SizeBytes));
-        var top = _items.TakeWhile((i, n) => n == 0 || (n < 3 && i.Probe.SizeBytes >= total / 5)).ToList();
+        var top = _compact ? [] : _items.TakeWhile((i, n) => n == 0 || (n < 3 && i.Probe.SizeBytes >= total / 5)).ToList();
         var rest = _items.Skip(top.Count).ToList();
-        Row(top, Gap, TopRow, width, more: []);
+        if (top.Count > 0)
+            Row(top, Gap, TopRow, width, more: []);
 
         if (rest.Count == 0)
             return;
         // Fit as many as can each get MinSmall px, keeping room for the "more" tile when some are left over.
-        var fits = rest.Count;
+        var fits = Math.Min(rest.Count, SmallTilesMax);
         while (fits > 0)
         {
             var leftover = rest.Count - fits;
@@ -272,7 +295,7 @@ internal sealed class ProbeTiles : Control
                 break;
             fits--;
         }
-        Row(rest.Take(fits).ToList(), Gap + TopRow + Gap, BottomRow, width, rest.Skip(fits).ToList());
+        Row(rest.Take(fits).ToList(), top.Count > 0 ? Gap + TopRow + Gap : Gap, BottomRow, width, rest.Skip(fits).ToList());
     }
 
     private void Row(List<(ProbeSize Probe, string Title)> row, int y, int height, int width, List<(ProbeSize Probe, string Title)> more)
@@ -335,7 +358,7 @@ internal sealed class ProbeTiles : Control
         for (var n = 0; n < _tiles.Count; n++)
         {
             var (rect, probe, title, size) = _tiles[n];
-            var big = rect.Height == TopRow;
+            var big = rect.Height == TopRow && !_compact;
             var selected = probe is not null && probe.Id == _selected;
             var fill = selected ? Theme.Selected : n == _hover && probe is not null ? Theme.Hover : big ? Tint.Over(Theme.Fill, Theme.Card, 0.22) : Theme.Raised;
             using (var path = CardPanel.Rounded(rect with { Width = rect.Width - 1, Height = rect.Height - 1 }, 8))
@@ -354,7 +377,7 @@ internal sealed class ProbeTiles : Control
             else
             {
                 // One line when it fits ("npm cache  2.7 GB"), else the size alone.
-                var sizeWidth = TextRenderer.MeasureText(size, Theme.Small, Size.Empty, flags).Width;
+                var sizeWidth = TextRenderer.MeasureText(size, Theme.Small, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
                 var titleRoom = inner.Width - sizeWidth - 8;
                 var line = new Rectangle(inner.X, rect.Y, inner.Width, rect.Height);
                 if (titleRoom > 30)
