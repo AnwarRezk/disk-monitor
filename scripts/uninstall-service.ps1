@@ -29,6 +29,22 @@ $RunKey      = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
 $RunValue    = 'DiskMonTray'
 $dataDir     = Join-Path $env:ProgramData 'DiskMon'
 
+# A service reports Stopped a moment before its process exits and releases its files (clrjit.dll, ...),
+# so wait for every process running from $Dir to be gone before touching it.
+function Wait-FolderProcessesExit {
+    param([string] $Dir, [int] $TimeoutSeconds = 30)
+    $prefix = (Join-Path ([IO.Path]::GetFullPath($Dir)) '')
+    $running = @(Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+    if ($running.Count -eq 0) { return }
+    Write-Host "Waiting for $($running.Count) process(es) running from $Dir to exit..."
+    $running | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
+    $left = @($running | Where-Object { -not $_.HasExited })
+    if ($left.Count -gt 0) {
+        throw "Still running from ${Dir}: $(($left | ForEach-Object { "$($_.ProcessName) ($($_.Id))" }) -join ', ')."
+    }
+}
+
 if (Get-ItemProperty -Path $RunKey -Name $RunValue -ErrorAction SilentlyContinue) {
     Write-Host "Removing the Tray's Run entry ($RunValue)..."
     Remove-ItemProperty -Path $RunKey -Name $RunValue
@@ -38,8 +54,8 @@ $trays = Get-Process -Name 'DiskMon.Tray' -ErrorAction SilentlyContinue
 if ($trays) {
     Write-Host "Stopping $(@($trays).Count) running Tray process(es)..."
     $trays | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
 }
+if (Test-Path $TrayInstallDir) { Wait-FolderProcessesExit $TrayInstallDir }
 
 if (Test-Path $TrayInstallDir) {
     Write-Host "Removing $TrayInstallDir..."
@@ -53,6 +69,7 @@ if ($service) {
         Stop-Service -Name $ServiceName -Force
         $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     }
+    if (Test-Path $InstallDir) { Wait-FolderProcessesExit $InstallDir }
     Write-Host "Removing the $ServiceName service..."
     sc.exe delete $ServiceName | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "sc.exe delete failed with exit code $LASTEXITCODE." }

@@ -60,6 +60,22 @@ function Wait-ServiceStatus {
     $service.WaitForStatus($Status, [TimeSpan]::FromSeconds($TimeoutSeconds))
 }
 
+# A service reports Stopped a moment before its process exits and releases its files (clrjit.dll, ...),
+# so wait for every process running from $Dir to be gone before touching it.
+function Wait-FolderProcessesExit {
+    param([string] $Dir, [int] $TimeoutSeconds = 30)
+    $prefix = (Join-Path ([IO.Path]::GetFullPath($Dir)) '')
+    $running = @(Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+    if ($running.Count -eq 0) { return }
+    Write-Host "Waiting for $($running.Count) process(es) running from $Dir to exit..."
+    $running | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
+    $left = @($running | Where-Object { -not $_.HasExited })
+    if ($left.Count -gt 0) {
+        throw "Still running from ${Dir}: $(($left | ForEach-Object { "$($_.ProcessName) ($($_.Id))" }) -join ', ')."
+    }
+}
+
 Write-Host "Publishing the Collector (Release, win-x64, self-contained)..."
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 Invoke-Native 'dotnet publish' {
@@ -78,6 +94,7 @@ if ($existing -and $existing.Status -ne 'Stopped') {
     Stop-Service -Name $ServiceName -Force
     Wait-ServiceStatus 'Stopped'
 }
+if (Test-Path $InstallDir) { Wait-FolderProcessesExit $InstallDir }
 
 Write-Host "Copying to $InstallDir..."
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -116,7 +133,7 @@ Wait-ServiceStatus 'Running'
 # The Tray: every signed-in user may be running a copy, which locks the files; stop them all first.
 Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($TrayExeName)) -ErrorAction SilentlyContinue |
     Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 500
+if (Test-Path $TrayInstallDir) { Wait-FolderProcessesExit $TrayInstallDir }
 
 Write-Host "Copying the Tray to $TrayInstallDir..."
 if (Test-Path $TrayInstallDir) { Remove-Item $TrayInstallDir -Recurse -Force }
