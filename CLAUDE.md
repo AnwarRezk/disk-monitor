@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DiskMon is a Windows-only disk-space monitor. `PLAN.md` is the source of truth for design, schema, milestones (M0–M5) and acceptance criteria; read it before starting work, together with `GLOSSARY.md` (use its terms: Swing, Probe, Probe Window, Unaccounted, Downtime…) and `docs/adr/`. **Implement one milestone at a time** and stop for review when its acceptance criteria pass. Don't start the next milestone unprompted.
 
-At the time of writing no code exists yet; the structure below is the planned layout from `PLAN.md`. Update this file once M0 lands.
+M0 (scaffolding, Linear DIS-6) has landed: the solution, the full MVP schema as migration `0001`, the data-folder ACL, config binding (`DiskMonOptions`), capped Serilog logs and Windows CI. The Collector creates the DB and then idles; samplers and services arrive in M1–M3. Folders listed under Architecture that don't exist yet (`Samplers/`, `Services/`, `Analysis/`, `Native/`, `Probes/`, `Ipc/`, `scripts/`) are still to come.
 
 ## Commands
 
 ```powershell
-dotnet build                                              # whole solution (DiskMon.sln)
+dotnet build                                              # whole solution (DiskMon.sln); also builds on Linux/macOS (EnableWindowsTargeting)
 dotnet test                                               # xUnit tests in tests/DiskMon.Core.Tests
 dotnet test --filter "FullyQualifiedName~SwingDetector"   # run a subset / single test
 dotnet run --project src/DiskMon.Collector                # run collector as a console app (use an ELEVATED terminal)
@@ -20,16 +20,18 @@ scripts/install-service.ps1                               # publish self-contain
 scripts/simulate-growth.ps1 -SizeGB 2 -Location temp|unprobed -Cleanup   # produce test Swings (admin)
 ```
 
-Run `dotnet build` and `dotnet test` before declaring a milestone done. CI runs the same on `windows-latest`.
+Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.github/workflows/ci.yml`) runs the same on `windows-latest`. Windows-only tests (ACLs) call `Assert.SkipUnless(OperatingSystem.IsWindows(), …)` so the suite also runs elsewhere. Tests use xUnit v3.
 
 ## Conventions
 
-- .NET 10 (`net10.0-windows`), C# latest, nullable enabled, file-scoped namespaces. Warnings are errors in `DiskMon.Core`.
+- .NET 10 (`net10.0-windows`, SDK pinned in `global.json`), C# latest, nullable enabled, file-scoped namespaces; shared settings in `Directory.Build.props`. Warnings are errors in `DiskMon.Core`.
 - Pure logic lives in `DiskMon.Core/Analysis` (e.g. `SwingDetector`, `Attribution`) and must have unit tests. **No Win32 calls there.** `SwingDetector` is a pure function: (ordered samples + current state) → list of actions.
 - Every P/Invoke lives in `DiskMon.Core/Native`, using `[LibraryImport]` with `SetLastError = true`.
 - Data access is `Microsoft.Data.Sqlite` + `Dapper` (no EF). Charts: `ScottPlot.WinForms`. Logging: Serilog.
 - Timestamps are UTC Unix epoch **milliseconds** (INTEGER); sizes are INTEGER bytes.
-- Schema changes go in new numbered SQL migration files embedded as resources under `DiskMon.Core/Data/Migrations`, applied at collector startup. Never edit an applied migration.
+- Schema changes go in new numbered SQL migration files (`NNNN_snake_name.sql`, numbered 1..n without gaps) under `DiskMon.Core/Data/Migrations`, embedded as resources and applied by `Migrator` at collector startup, each in its own transaction. `schema_version` is created by `Migrator`, not by a migration. `PRAGMA journal_mode = WAL` is set by `Db.OpenOrCreate` because it can't run inside a transaction. Never edit an applied migration.
+- Config lists (`Volumes`, `Probes`) start empty and get defaults in `DiskMonOptions.Normalize()`, because the binder appends to pre-filled lists. Add validation for new settings in `DiskMonOptions.Validate()`.
+- Log sinks go through `DiskMonLogging.CappedFile(...)` (7 files × 10 MB). The data folder (and its ACL) must exist before the logger is created, since logs live inside it.
 
 ## Architecture
 
