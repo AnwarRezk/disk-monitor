@@ -7,7 +7,7 @@ namespace DiskMon.Collector.Samplers;
 
 /// <summary>
 /// Every <c>Intervals:ProcessIoSampleSeconds</c> (default 60 s), stores the interval's Top Writers: the top
-/// <c>TopWriters:Count</c> processes by bytes written, each at least <c>TopWriters:MinWriteMb</c>.
+/// <c>TopWriters:Count</c> programs by bytes written (summed over their processes), each at least <c>TopWriters:MinWriteMb</c>.
 /// The counters include all I/O, not just disk writes, so they are a ranking signal, not bytes on disk.
 /// </summary>
 public sealed class ProcessIoSampler(Db db, DiskMonOptions options, ILogger<ProcessIoSampler> logger) : BackgroundService

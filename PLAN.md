@@ -161,7 +161,8 @@ Migrations are numbered SQL files embedded as resources and applied at Collector
 - For each process: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, then `GetProcessIoCounters`, `GetProcessTimes` (start time) and `QueryFullProcessImageName`.
 - Key the previous counters by `(pid, start_time)` so PID reuse doesn't produce bogus deltas.
 - Skip access-denied and protected processes silently, with a debug-level log.
-- Upsert identity into `processes`; store the **top 10** by `write_bytes_delta`, only those with **≥ 1 MB** written.
+- Compute deltas per process instance, then sum them **per program** (name + exe path, case-insensitive), so a program running as several processes gets one row.
+- Upsert identity into `processes`; store the **top 10** programs by summed `write_bytes_delta`, only those with **≥ 1 MB** written in total.
 - Caveat to note in the UI: these counters include all I/O, not only disk writes. Treat them as a **ranking signal**, not as exact bytes on disk.
 
 ### 5.3 ProbeSampler (every 10 min, at Swing open and close, and on demand)
