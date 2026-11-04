@@ -78,7 +78,10 @@ internal sealed class DashboardForm : Form
     private readonly RichLine _spaceIntro = new() { Dock = DockStyle.Fill };
     private readonly DarkListView _probeList = new(rowHeight: ProbeRowHeight) { Dock = DockStyle.Fill };
     private readonly DarkListView _swingList = new() { Dock = DockStyle.Fill };
-    private readonly Panel _swingDetail = new() { Dock = DockStyle.Bottom, Height = 150, BackColor = Theme.PlotGround, Visible = false, Padding = new Padding(20, 10, 20, 10) };
+    private readonly Panel _swingDetail = new() { Dock = DockStyle.Bottom, Height = 200, BackColor = Theme.Card, Visible = false };
+    private readonly Panel _detailHeader = new() { Dock = DockStyle.Top, Height = DetailHeaderHeight, BackColor = Theme.PlotGround };
+    private readonly DarkListView _itemList = new() { Dock = DockStyle.Fill };
+    private readonly ToggleButton _openLocation = new("Open location", ToggleLook.Action) { Anchor = AnchorStyles.Top | AnchorStyles.Right, Enabled = false, AccessibleName = "Open the selected item's location in Explorer" };
     private readonly RichLine _writersIntro = new() { Dock = DockStyle.Fill };
     private readonly DarkListView _writerList = new() { Dock = DockStyle.Fill };
     private readonly Label _footer = new() { Dock = DockStyle.Bottom, Height = 24, ForeColor = Theme.Faint, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.Ground };
@@ -104,7 +107,6 @@ internal sealed class DashboardForm : Form
     private double? _dragFrom;
     private int _dragStartPx;
     private long? _copiedProbe;
-    private IReadOnlyList<SwingItem> _detailItems = [];
     private SwingRow? _detailSwing;
 
     public DashboardForm(DashboardLoader loader, PipeClient pipe, string volume, bool persist = true)
@@ -235,6 +237,14 @@ internal sealed class DashboardForm : Form
             SelectRange(range);
             ShowTab(tab);
             await ReloadAsync();
+            if (tab == SwingsTab && _swingList.Items.Count > 0)
+            {
+                // Show a Swing's detail: the newest attributed one if there is one.
+                var pick = _swingList.Items.Cast<ListViewItem>().FirstOrDefault(i => i.Tag is SwingRow { Stage: "closed" }) ?? _swingList.Items[0];
+                pick.Selected = true;
+                if (_itemList.Items.Count > 0)
+                    _itemList.Items[0].Selected = true;
+            }
             await Task.Delay(900);
             Refresh();
             var bounds = Dwmapi.TryGetFrameBounds(Handle, out var frame) ? frame : Bounds;
@@ -302,6 +312,7 @@ internal sealed class DashboardForm : Form
             $"plot {Box(_plot)} scale {_plot.DisplayScale} figure {_plot.Plot.RenderManager.LastRender.FigureRect} data {_plot.Plot.RenderManager.LastRender.DataRect} y {_plot.Plot.Axes.GetLimits().Bottom:0.##}..{_plot.Plot.Axes.GetLimits().Top:0.##}",
             $"probeList {Box(_probeList)}",
             $"swingList {Box(_swingList)}",
+            $"swingDetail {Box(_swingDetail)} items {_itemList.Items.Count}",
             $"writerList {Box(_writerList)}",
             $"footer {Box(_footer)}",
         };
@@ -532,15 +543,43 @@ internal sealed class DashboardForm : Form
     private void BuildSwingsPage()
     {
         AddColumns(_swingList, ("Time", 20, HorizontalAlignment.Left), ("Volume", 10, HorizontalAlignment.Left),
-            ("Kind", 14, HorizontalAlignment.Left), ("Change", 14, HorizontalAlignment.Right),
+            ("Kind", 14, HorizontalAlignment.Left), ("Free space", 14, HorizontalAlignment.Right),
             ("Attributed", 14, HorizontalAlignment.Right), ("Unaccounted", 15, HorizontalAlignment.Right),
             ("Stage", 13, HorizontalAlignment.Left));
         _swingList.MonoColumns.UnionWith([0, 3, 4, 5]);
         _swingList.CellPainter = PaintStageCell;
         _swingList.EmptyText = Loading;
         _swingList.SelectedIndexChanged += (_, _) => ShowSwingDetail();
-        _swingDetail.Paint += PaintSwingDetail;
-        _swingDetail.Resize += (_, _) => _swingDetail.Invalidate();
+
+        // The detail: a header line (times, Probe Window, Open location), then the items as a list.
+        AddColumns(_itemList, ("Source", 12, HorizontalAlignment.Left), ("What changed", 28, HorizontalAlignment.Left),
+            ("Change", -ItemChangeWidth, HorizontalAlignment.Left), ("Location", 60, HorizontalAlignment.Left));
+        _itemList.PathColumns.Add(3);
+        _itemList.MonoColumns.Add(3);
+        _itemList.CellPainter = PaintItemCell;
+        _itemList.ShowItemToolTips = true;
+        _itemList.SelectedIndexChanged += (_, _) => _openLocation.Enabled = SelectedItemPath() is not null;
+        _itemList.DoubleClick += (_, _) => OpenSelectedLocation();
+        _itemList.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+                OpenSelectedLocation();
+        };
+        _openLocation.Click += (_, _) => OpenSelectedLocation();
+        _detailHeader.Paint += PaintDetailHeader;
+        _detailHeader.Resize += (_, _) =>
+        {
+            PlaceOpenLocation();
+            _detailHeader.Invalidate();
+        };
+        _detailHeader.Controls.Add(_openLocation);
+        _swingDetail.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Theme.Hairline);
+            e.Graphics.DrawLine(pen, 0, 0, _swingDetail.Width, 0);
+        };
+        _swingDetail.Controls.Add(_itemList);
+        _swingDetail.Controls.Add(_detailHeader);
         _swingsPage.Controls.Add(_swingList);
         _swingsPage.Controls.Add(_swingDetail);
     }
@@ -1289,8 +1328,9 @@ internal sealed class DashboardForm : Form
             });
             // used_delta is +growth / −release in used space; show the change in free space, matching the chart.
             item.SubItems.Add(w.UsedDeltaBytes is { } used ? SizeText.SignedGb(-used) : "…");
-            item.SubItems.Add(w.AttributedBytes is { } a ? SizeText.Gb(a) : "—");
-            item.SubItems.Add(w.UnaccountedBytes is { } u ? SizeText.Gb(u) : "—");
+            // Attributed and Unaccounted are changes in used space (what grew), like the detail's items.
+            item.SubItems.Add(w.AttributedBytes is { } a ? SizeText.SignedGb(a) : "—");
+            item.SubItems.Add(w.UnaccountedBytes is { } u ? SizeText.SignedGb(u) : "—");
             item.SubItems.Add(w.Stage switch { "open" => "open", "closing" => "attributing…", _ => "closed" });
             item.Selected = w.Id == selected;
             _swingList.Items.Add(item);
@@ -1298,8 +1338,8 @@ internal sealed class DashboardForm : Form
         _swingList.EndUpdate();
         _swingList.UpdateEmpty();
         _swingsTab.Text = s.Swings.Count > 0 ? $"Swings · {s.Swings.Count}" : "Swings";
-        if (_swingList.SelectedItems.Count == 0)
-            ShowSwingDetail();
+        // The selected Swing may have moved on (Closing → Closed): show its new row.
+        ShowSwingDetail();
     }
 
     private static bool PaintStageCell(Graphics g, Rectangle cell, ListViewItem item, int column)
@@ -1318,73 +1358,167 @@ internal sealed class DashboardForm : Form
         return true;
     }
 
+    private const int DetailHeaderHeight = 46;
+    private const int ItemChangeWidth = 300;
+    private const int DetailRowsShown = 7;
+
+    private const string UnaccountedHint = "Hidden system storage (VSS, pagefile) or locations not covered by probes";
+
+    /// <summary>One row of a Swing's detail list. <see cref="Share"/> scales its bar against the largest Probe row.</summary>
+    private sealed record DetailRow(string Source, long DeltaBytes, string? Path, double Share);
+
     private void ShowSwingDetail()
     {
         _detailSwing = _swingList.SelectedItems.Count > 0 ? _swingList.SelectedItems[0].Tag as SwingRow : null;
-        if (_detailSwing is null)
+        if (_detailSwing is not { } swing)
         {
             _swingDetail.Visible = false;
             return;
         }
+        IReadOnlyList<SwingItem> items;
         try
         {
-            _detailItems = _loader.SwingItems(_detailSwing.Id);
+            items = swing.Stage == "closed" ? _loader.SwingItems(swing.Id) : [];
         }
         catch (SqliteException)
         {
-            _detailItems = [];
+            items = [];
         }
-        _swingDetail.Height = Math.Clamp(60 + (Math.Min(5, _detailItems.Count(i => i.Source != "process")) * 22) + 24, 110, 220);
+
+        // Keep the selected row across the 30 s refresh.
+        var kept = _itemList.SelectedItems.Count > 0 ? _itemList.SelectedItems[0].SubItems[1].Text + "|" + _itemList.SelectedItems[0].SubItems[0].Text : null;
+        var probes = items.Where(i => i.Source != Attribution.ProcessSource).ToList();
+        var writers = items.Where(i => i.Source == Attribution.ProcessSource).ToList();
+        var largest = Math.Max(1, probes.Select(i => Math.Abs(i.DeltaBytes)).Append(Math.Abs(swing.UnaccountedBytes ?? 0)).Max());
+        var largestWriter = Math.Max(1, writers.Select(i => i.DeltaBytes).DefaultIfEmpty(1).Max());
+
+        _itemList.BeginUpdate();
+        _itemList.Items.Clear();
+        foreach (var i in probes)
+            AddDetailRow(i.Source == "usn" ? "File" : "Probe", i.Label, i.Path, new DetailRow("probe", i.DeltaBytes, i.Path, Math.Abs(i.DeltaBytes) / (double)largest), i.Path);
+        foreach (var w in writers)
+            AddDetailRow("Top Writer", w.Label, w.Path, new DetailRow("process", w.DeltaBytes, w.Path, w.DeltaBytes / (double)largestWriter),
+                (w.Path ?? w.Label) + "\nBytes written during the Swing: a ranking signal, not bytes on disk (not counted in Attributed).");
+        if (swing.Stage == "closed")
+        {
+            var note = swing.ProbeWindowStart is null
+                ? "No Probe was measured on both sides of this Swing (the Collector stopped before the after-side run), so all of it is Unaccounted."
+                : UnaccountedHint;
+            AddDetailRow("", "Unaccounted", note, new DetailRow("unaccounted", swing.UnaccountedBytes ?? 0, null, Math.Abs(swing.UnaccountedBytes ?? 0) / (double)largest), note);
+        }
+        foreach (ListViewItem item in _itemList.Items)
+            item.Selected = kept is not null && item.SubItems[1].Text + "|" + item.SubItems[0].Text == kept;
+        _itemList.EndUpdate();
+        _itemList.EmptyText = swing.Stage switch
+        {
+            "open" => "Free space is still moving. Attribution runs once the Swing settles and the Probes have been measured again.",
+            _ => "Attributing… waiting for the Probe run after this Swing's end (it starts as soon as the Swing closes).",
+        };
+        _itemList.UpdateEmpty();
+        _openLocation.Enabled = SelectedItemPath() is not null;
+
+        var rows = Math.Clamp(_itemList.Items.Count, 2, DetailRowsShown);
+        _swingDetail.Height = DetailHeaderHeight + 30 + (rows * 30) + 6;
         _swingDetail.Visible = true;
-        _swingDetail.Invalidate();
+        _detailHeader.Invalidate();
+        PlaceOpenLocation();
     }
 
-    private void PaintSwingDetail(object? sender, PaintEventArgs e)
+    private void AddDetailRow(string source, string label, string? location, DetailRow row, string? tip)
+    {
+        var item = new ListViewItem(source) { Tag = row, ToolTipText = tip };
+        item.SubItems.Add(label);
+        item.SubItems.Add("");
+        item.SubItems.Add(location ?? "");
+        _itemList.Items.Add(item);
+    }
+
+    private void PlaceOpenLocation() =>
+        _openLocation.Location = new Point(_detailHeader.ClientSize.Width - 20 - _openLocation.Width, (DetailHeaderHeight - _openLocation.Height) / 2);
+
+    private void PaintDetailHeader(object? sender, PaintEventArgs e)
     {
         var g = e.Graphics;
         g.Clear(Theme.PlotGround);
         if (_detailSwing is not { } swing)
             return;
-        const TextFormatFlags flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
-        var x = _swingDetail.Padding.Left;
-        var y = _swingDetail.Padding.Top;
-        var width = _swingDetail.ClientSize.Width - _swingDetail.Padding.Horizontal;
-        var end = swing.TsEnd is { } te ? LocalTime(te, DashboardRange.Hours24) : "now";
-        TextRenderer.DrawText(g, $"WHAT CHANGED · {LocalTime(swing.TsStart, DashboardRange.Hours24)} → {end}" + (swing.AcrossDowntime ? " · across Downtime" : ""),
-            Theme.Caption, new Rectangle(x, y, width, 14), Theme.Muted, flags);
-        y += 24;
+        var end = swing.TsEnd is { } te ? ShortTime(te) : "now";
+        var parts = new List<string> { $"WHAT CHANGED · {ShortTime(swing.TsStart)} → {end}" };
+        if (swing.ProbeWindowStart is { } ws && swing.ProbeWindowEnd is { } we)
+            parts.Add($"probe window {ShortTime(ws)}–{ShortTime(we)}");
+        if (swing.AcrossDowntime)
+            parts.Add("across Downtime: the Collector wasn't sampling, so when it moved is unknown");
+        if (swing.Stage == "closing")
+            parts.Add("attributing…");
+        var text = new Rectangle(20, 0, Math.Max(0, _openLocation.Left - 32), DetailHeaderHeight);
+        TextRenderer.DrawText(g, string.Join("   ·   ", parts), Theme.Small, text, Theme.Muted,
+            TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+    }
 
-        var probes = _detailItems.Where(i => i.Source != "process").Take(5).ToList();
-        var rows = probes.Select(i => (i.Label, i.DeltaBytes, Theme.Growth)).ToList();
-        if (swing.UnaccountedBytes is { } u && u != 0)
-            rows.Add(("Unaccounted", u, Theme.Unaccounted));
-        if (rows.Count == 0)
+    /// <summary>Column 0 in a muted caption style; column 2 is a bar and the size, coloured by direction.</summary>
+    private static bool PaintItemCell(Graphics g, Rectangle cell, ListViewItem item, int column)
+    {
+        if (item.Tag is not DetailRow row)
+            return false;
+        const TextFormatFlags flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
+        if (column == 0)
         {
-            var why = swing.Stage == "closed" ? "No Probe changed by 50 MB or more during this Swing." : "Attribution runs once the Swing closes and the Probes have been measured again.";
-            TextRenderer.DrawText(g, why, Theme.Body, new Rectangle(x, y, width, 18), Theme.Muted, flags);
-            y += 26;
+            TextRenderer.DrawText(g, item.Text.ToUpperInvariant(), Theme.Caption, cell, Theme.Faint, flags);
+            return true;
         }
-        else
+        if (column == 1 && row.Source == "unaccounted")
         {
-            var labelWidth = Math.Min(260, width / 3);
-            var barWidth = Math.Min(320, width / 3);
-            var max = Math.Max(1, rows.Max(r => Math.Abs(r.Item2)));
-            foreach (var (label, delta, color) in rows)
-            {
-                TextRenderer.DrawText(g, label, Theme.Body, new Rectangle(x, y, labelWidth, 18), Theme.Text, flags);
-                var bar = new Rectangle(x + labelWidth + 12, y + 6, Math.Max(2, (int)(barWidth * Math.Abs(delta) / (double)max)), 6);
-                using (var b = new SolidBrush(color == Theme.Unaccounted ? Theme.Unaccounted : delta >= 0 ? Theme.Growth : Theme.Release))
-                    g.FillRectangle(b, bar);
-                TextRenderer.DrawText(g, (delta >= 0 ? "+" : "−") + SizeText.Gb(Math.Abs(delta)), Theme.Mono,
-                    new Rectangle(x + labelWidth + barWidth + 24, y, 120, 18), color == Theme.Unaccounted ? Theme.Muted : delta >= 0 ? Theme.Growth : Theme.Release, flags);
-                y += 22;
-            }
+            TextRenderer.DrawText(g, item.SubItems[1].Text, Theme.BodyStrong, cell, Theme.Text, flags);
+            return true;
         }
-        var writers = _detailItems.Where(i => i.Source == "process").Take(4).Select(i => i.Label).ToList();
-        if (writers.Count > 0)
+        if (column != 2)
+            return false;
+
+        var (color, text) = row.Source switch
         {
-            TextRenderer.DrawText(g, $"Busiest writers during this Swing: {string.Join(", ", writers)} (ranking signal)", Theme.Small,
-                new Rectangle(x, y + 4, width, 16), Theme.Muted, flags);
+            "process" => (Theme.Fill, SizeText.Compact(row.DeltaBytes) + " written"),
+            "unaccounted" => (Theme.Unaccounted, SignedSize(row.DeltaBytes)),
+            _ => (row.DeltaBytes >= 0 ? Theme.Growth : Theme.Release, SignedSize(row.DeltaBytes)),
+        };
+        var textWidth = TextRenderer.MeasureText("000.0 GB written", Theme.Mono).Width;
+        var track = new Rectangle(cell.X, cell.Y + (cell.Height / 2) - 3, Math.Clamp(cell.Width - textWidth - 12, 0, 150), 6);
+        using (var trackBrush = new SolidBrush(Theme.Grid))
+            g.FillRectangle(trackBrush, track);
+        using (var bar = new SolidBrush(color))
+            g.FillRectangle(bar, track with { Width = Math.Max(2, (int)(track.Width * Math.Min(1, row.Share))) });
+        var figure = new Rectangle(track.Right + 12, cell.Y, Math.Max(0, cell.Right - track.Right - 12), cell.Height);
+        var fore = row.Source switch { "process" or "unaccounted" => Theme.Muted, _ => color };
+        TextRenderer.DrawText(g, text, Theme.Mono, figure, fore, flags);
+        return true;
+    }
+
+    /// <summary><c>+2.0 GB</c>, <c>−340 MB</c>: Swing items start at 50 MB, too small for one decimal of a GB.</summary>
+    private static string SignedSize(long bytes) =>
+        bytes == 0 ? "0 MB" : (bytes < 0 ? "−" : "+") + SizeText.Compact(Math.Abs(bytes));
+
+    private string? SelectedItemPath() =>
+        _itemList.SelectedItems.Count > 0 && _itemList.SelectedItems[0].Tag is DetailRow { Path: { Length: > 0 } path } ? path : null;
+
+    /// <summary>Explorer at the selected item: a folder opened, a file (a program's exe) selected, or the nearest parent that still exists.</summary>
+    private void OpenSelectedLocation()
+    {
+        if (SelectedItemPath() is not { } path)
+            return;
+        var target = OpenLocation.Resolve(path, File.Exists, Directory.Exists);
+        if (target is null)
+        {
+            _footer.Text = $"{path} no longer exists, nor does any folder above it";
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", target.Arguments) { UseShellExecute = true })?.Dispose();
+            if (!string.Equals(target.Path.TrimEnd('\\'), path.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                _footer.Text = $"{path} isn't there any more (or isn't readable from your account): opened {target.Path}";
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            _footer.Text = $"could not open Explorer: {ex.Message}";
         }
     }
 
@@ -1509,6 +1643,7 @@ internal sealed class DashboardForm : Form
             _tips.Dispose();
             _probeList.SmallImageList?.Dispose();
             _swingList.SmallImageList?.Dispose();
+            _itemList.SmallImageList?.Dispose();
             _writerList.SmallImageList?.Dispose();
         }
         base.Dispose(disposing);
