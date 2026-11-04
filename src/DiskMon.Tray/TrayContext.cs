@@ -3,6 +3,7 @@ using DiskMon.Core.Analysis;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
 using DiskMon.Core.Ipc;
+using DiskMon.Tray.Dashboard;
 using Microsoft.Data.Sqlite;
 
 namespace DiskMon.Tray;
@@ -11,7 +12,7 @@ namespace DiskMon.Tray;
 /// Hidden application context owning the tray icon. Every 30 s it reads the newest Volume Sample from the
 /// database (read-only, never written), pings the Collector over the pipe, and redraws the icon and tooltip:
 /// grey with "Collector not running" when the ping fails or reports no sample in the last 2 minutes.
-/// The dashboard arrives in a later ticket.
+/// "Open dashboard" (or double-clicking the icon) opens the <see cref="DashboardForm"/>, one window at a time.
 /// </summary>
 internal sealed class TrayContext : ApplicationContext
 {
@@ -26,9 +27,10 @@ internal sealed class TrayContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _timer;
     private readonly ToolStripMenuItem _probeNow;
     private Icon? _currentIcon;
+    private DashboardForm? _dashboard;
     private bool _refreshing;
 
-    public TrayContext(TrayConfig config)
+    public TrayContext(TrayConfig config, bool openDashboard = false)
     {
         _options = config.Options;
         // C: is the default and priority Volume; if config leaves it out, show the first sampled one.
@@ -45,6 +47,7 @@ internal sealed class TrayContext : ApplicationContext
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
         _icon = new NotifyIcon { ContextMenuStrip = menu, Visible = false };
+        _icon.DoubleClick += (_, _) => OpenDashboard();
         ShowUnknown("DiskMon: reading free space…");
         _icon.Visible = true;
 
@@ -55,6 +58,8 @@ internal sealed class TrayContext : ApplicationContext
         _timer.Tick += async (_, _) => await RefreshAsync();
         _timer.Start();
         _ = RefreshAsync();
+        if (openDashboard)
+            OpenDashboard();
     }
 
     private async Task RefreshAsync()
@@ -166,8 +171,18 @@ internal sealed class TrayContext : ApplicationContext
         previous?.Dispose();
     }
 
-    private static void OpenDashboard() =>
-        MessageBox.Show("The dashboard is coming in a later version of DiskMon.", "DiskMon", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    private void OpenDashboard()
+    {
+        if (_dashboard is null || _dashboard.IsDisposed)
+        {
+            _dashboard = new DashboardForm(new DashboardLoader(_db, _options), _pipe, _volume);
+            _dashboard.FormClosed += (_, _) => _dashboard = null;
+            _dashboard.Show();
+        }
+        if (_dashboard.WindowState == FormWindowState.Minimized)
+            _dashboard.WindowState = FormWindowState.Normal;
+        _dashboard.Activate();
+    }
 
     private void OpenDataFolder()
     {
@@ -181,6 +196,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         _timer.Stop();
         _timer.Dispose();
+        _dashboard?.Close();
         _icon.Visible = false;
         _icon.Dispose();
         _currentIcon?.Dispose();

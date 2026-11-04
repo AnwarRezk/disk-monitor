@@ -46,6 +46,18 @@ public static class FreeSpaceStatus
     }
 
     /// <summary>
+    /// The free space below which a Volume of <paramref name="totalBytes"/> turns amber and red: the higher of the
+    /// GB limit and the percentage limit, because <see cref="Level"/> warns when either is crossed. With the total
+    /// unknown (0) only the GB limits apply.
+    /// </summary>
+    public static (long AmberBytes, long RedBytes) WarningLevels(long totalBytes, TrayOptions options)
+    {
+        static long Limit(double gb, double percent, long total) =>
+            (long)Math.Max(gb * Bytes.GB, total > 0 ? total * percent / 100 : 0);
+        return (Limit(options.AmberBelowGb, options.AmberBelowPercent, totalBytes), Limit(options.RedBelowGb, options.RedBelowPercent, totalBytes));
+    }
+
+    /// <summary>
     /// The number drawn on the icon: whole free GB rounded down (never flatters a nearly full disk), or whole TB
     /// with a "T" (at least 1T) once there are 1000 GB or more, so it stays at most three characters for typical disks.
     /// </summary>
