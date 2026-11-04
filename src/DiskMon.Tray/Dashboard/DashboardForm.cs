@@ -29,6 +29,7 @@ internal sealed class DashboardForm : Form
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(30);
     private const string SpaceTab = "space", SwingsTab = "swings", WritersTab = "writers";
     private const int HeaderHeight = 60;
+    private const string Loading = "Loading…";
     private const int NarrowWidth = 1100;
     private static readonly int ProbeRowHeight = Theme.Body.Height + Theme.MonoSmall.Height + 14;
 
@@ -136,6 +137,8 @@ internal sealed class DashboardForm : Form
 
         BuildLayout();
         StylePlot();
+        // Hidden until the first read, so the window never shows an empty axis running from 1899.
+        _plot.Visible = false;
         WireChartMouse();
 
         _timer = new System.Windows.Forms.Timer { Interval = (int)RefreshInterval.TotalMilliseconds };
@@ -267,12 +270,13 @@ internal sealed class DashboardForm : Form
         {
             // The data area is the plot minus its axis margins; take the margins from the last render (they don't
             // change with the height) and apply them to the current height, which may be newer than that render.
-            // ScottPlot lays out in units of pixels ÷ DisplayScale, so work in those.
+            // The render rectangles are in control pixels (a 248 px plot reports a 248 px figure).
             var last = _plot.Plot.RenderManager.LastRender;
             var scale = Math.Max(1, _plot.DisplayScale);
-            var margins = last.DataRect.Height > 0 ? last.FigureRect.Height - last.DataRect.Height : 48;
-            var dataPx = Math.Max(40, _plot.Height / scale - margins);
-            const double labelPx = 24;
+            var margins = last.DataRect.Height > 0 ? last.FigureRect.Height - last.DataRect.Height : 36 * scale;
+            var dataPx = Math.Max(40, _plot.Height - margins);
+            // The 11 pt label, its 2 px lift and a little air.
+            var labelPx = 18 * scale;
             // Solve top so the warning sits labelPx below it: (top - warning) / (top - floor) = labelPx / dataPx.
             var share = Math.Min(0.6, labelPx / dataPx);
             var needed = (warning - share * frame.Floor) / (1 - share);
@@ -514,7 +518,7 @@ internal sealed class DashboardForm : Form
             ("Change", -changeColumn, HorizontalAlignment.Right), ("How to reclaim", 60, HorizontalAlignment.Left));
         _probeList.CellPainter = PaintProbeCell;
         _probeList.ShowItemToolTips = true;
-        _probeList.EmptyText = "No Probe runs yet. Use Probe now, or wait for the Collector's next run (every 10 minutes).";
+        _probeList.EmptyText = Loading;
         _probeList.MouseClick += (_, e) => CopyHint(e.Location);
         _probeList.MouseMove += (_, e) =>
         {
@@ -533,7 +537,7 @@ internal sealed class DashboardForm : Form
             ("Stage", 13, HorizontalAlignment.Left));
         _swingList.MonoColumns.UnionWith([0, 3, 4, 5]);
         _swingList.CellPainter = PaintStageCell;
-        _swingList.EmptyText = "No Swings in this range. A Swing is recorded when free space moves by 1 GB or more within 15 minutes.";
+        _swingList.EmptyText = Loading;
         _swingList.SelectedIndexChanged += (_, _) => ShowSwingDetail();
         _swingDetail.Paint += PaintSwingDetail;
         _swingDetail.Resize += (_, _) => _swingDetail.Invalidate();
@@ -549,7 +553,7 @@ internal sealed class DashboardForm : Form
         _writerList.PathColumns.Add(3);
         _writerList.CellPainter = PaintWriterCell;
         _writerList.ShowItemToolTips = true;
-        _writerList.EmptyText = "No Top Writers recorded in this range.";
+        _writerList.EmptyText = Loading;
         _writersPage.Controls.Add(_writerList);
         _writersPage.Controls.Add(IntroBar(_writersIntro));
     }
@@ -846,6 +850,14 @@ internal sealed class DashboardForm : Form
             return;
         }
 
+        if (_last is null)
+        {
+            // First data: the chart was hidden and the lists said "Loading…" until now.
+            _plot.Visible = true;
+            _probeList.EmptyText = "No Probe runs yet. Use Probe now, or wait for the Collector's next run (every 10 minutes).";
+            _swingList.EmptyText = "No Swings in this range. A Swing is recorded when free space moves by 1 GB or more within 15 minutes.";
+            _writerList.EmptyText = "No Top Writers recorded in this range.";
+        }
         _last = snapshot;
         ShowVolumes(snapshot.Volumes);
         ShowFigures(snapshot);
@@ -1451,6 +1463,15 @@ internal sealed class DashboardForm : Form
         _statusDot.ForeColor = Theme.Red;
         _statusDot.Invalidate();
         _status.Text = "Not running";
+        if (_last is null)
+        {
+            // Nothing was ever read: say so where "Loading…" stood.
+            foreach (var list in new[] { _probeList, _swingList, _writerList })
+            {
+                list.EmptyText = "Nothing to show: " + _footer.Text;
+                list.UpdateEmpty();
+            }
+        }
     }
 
     private static string Ago(long ms) => ms switch
