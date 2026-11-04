@@ -480,3 +480,35 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# --- DiskMon ---
+# Build output
+bin/
+obj/
+publish/
+artifacts/
+TestResults/
+*.binlog
+
+# IDEs
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+
+# Local runtime data (the real DB lives in %ProgramData%\DiskMon)
+*.db
+*.db-wal
+*.db-shm
+logs/
+
+# Agent scratch
+.scratch/
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+.DS_Store
