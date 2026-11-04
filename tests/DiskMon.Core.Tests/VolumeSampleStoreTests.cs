@@ -27,6 +27,21 @@ public sealed class VolumeSampleStoreTests : IDisposable
     }
 
     [Fact]
+    public void Finds_the_newest_sample_at_or_before_a_time_and_the_oldest_sample()
+    {
+        var store = new VolumeSampleStore(Db.OpenOrCreate(_temp.File("diskmon.db")));
+        store.Insert([new VolumeSample(1_000, "C:", 500, 200), new VolumeSample(1_000, "D:", 900, 800)]);
+        store.Insert([new VolumeSample(31_000, "C:", 500, 190)]);
+        store.Insert([new VolumeSample(61_000, "C:", 500, 180)]);
+
+        Assert.Equal(190, store.AtOrBefore("C:", 31_000)!.FreeBytes);
+        Assert.Equal(190, store.AtOrBefore("C:", 60_999)!.FreeBytes);
+        Assert.Null(store.AtOrBefore("C:", 999));
+        Assert.Equal(200, store.Oldest("C:")!.FreeBytes);
+        Assert.Null(store.Oldest("E:"));
+    }
+
+    [Fact]
     public void Inserting_nothing_writes_nothing()
     {
         var db = Db.OpenOrCreate(_temp.File("diskmon.db"));

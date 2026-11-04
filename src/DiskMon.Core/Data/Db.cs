@@ -7,7 +7,7 @@ namespace DiskMon.Core.Data;
 /// The DiskMon SQLite database. The Collector is its only writer: <see cref="OpenOrCreate"/> creates the
 /// file if needed, switches it to WAL and applies the embedded migrations.
 /// </summary>
-public sealed class Db
+public sealed class Db : IDbConnectionSource
 {
     public const string FileName = "diskmon.db";
     public const int BusyTimeoutMs = 5000;
