@@ -70,7 +70,7 @@ public static class FreeSpaceStatus
     /// </summary>
     public static string Tooltip(VolumeSample latest, VolumeSample? baseline)
     {
-        var text = $"{latest.Volume} {Gb(latest.FreeBytes)} GB free";
+        var text = $"{latest.Volume} {GbRoundedDown(latest.FreeBytes)} GB free";
         if (baseline is not null && baseline.Ts < latest.Ts)
         {
             var delta = latest.FreeBytes - baseline.FreeBytes;
@@ -86,6 +86,10 @@ public static class FreeSpaceStatus
         new(Level(latest.FreeBytes, latest.TotalBytes, options), IconLabel(latest.FreeBytes), Tooltip(latest, baseline));
 
     private static string Gb(long bytes) => ((double)bytes / Bytes.GB).ToString("0.0", Invariant);
+
+    // Explorer truncates free space to one decimal rather than rounding it; match it so the numbers agree.
+    private static string GbRoundedDown(long bytes) =>
+        (Math.Floor(Math.Max(0, bytes) * 10.0 / Bytes.GB) / 10).ToString("0.0", Invariant);
 
     // 24h is the normal case; samples land every 30 s, so allow a little slack before showing "23h".
     private static string Span(TimeSpan span) => span switch

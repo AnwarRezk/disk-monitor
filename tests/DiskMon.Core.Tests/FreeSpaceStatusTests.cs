@@ -9,7 +9,7 @@ public sealed class FreeSpaceStatusTests
     private const long Hour = 3_600_000;
     private static readonly TrayOptions Defaults = new();
 
-    private static long Gb(double gb) => (long)(gb * Bytes.GB);
+    private static long Gb(double gb) => (long)Math.Ceiling(gb * Bytes.GB);
 
     [Theory]
     // 100 GB disk: the GB limits bite first (5 % = 5 GB, 10 % = 10 GB).
@@ -63,6 +63,12 @@ public sealed class FreeSpaceStatusTests
         var dayAgo = new VolumeSample(24 * Hour, "C:", Gb(500), Gb(15.5));
 
         Assert.Equal("C: 12.4 GB free (−3.1 GB in 24h)", FreeSpaceStatus.Tooltip(latest, dayAgo));
+    }
+
+    [Fact]
+    public void Tooltip_free_space_is_rounded_down_like_Explorer()
+    {
+        Assert.Equal("C: 16.2 GB free", FreeSpaceStatus.Tooltip(new VolumeSample(Hour, "C:", Gb(500), Gb(16.29)), null));
     }
 
     [Fact]
