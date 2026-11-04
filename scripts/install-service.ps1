@@ -1,14 +1,19 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Publishes the DiskMon Collector and installs it as the auto-start LocalSystem service "DiskMon".
+    Publishes the DiskMon Collector and installs it as the auto-start LocalSystem service "DiskMon",
+    then installs the Tray and starts it at logon for every user.
 
 .DESCRIPTION
-    1. dotnet publish -c Release -r win-x64 --self-contained into a staging folder.
+    1. dotnet publish -c Release -r win-x64 --self-contained for the Collector and the Tray.
     2. Stops the service if it is already installed, then copies the build to -InstallDir
        (Program Files by default, so only administrators can replace the binary SYSTEM runs).
        An existing appsettings.json there is kept, so local config survives a reinstall.
     3. Creates the service (or updates its path), sets restart-on-failure, and starts it.
+    4. Stops any running Tray, copies it to -TrayInstallDir, and adds the machine-wide
+       HKLM\Software\Microsoft\Windows\CurrentVersion\Run value "DiskMonTray" so it starts at every
+       user's logon. The Tray reads its colour thresholds from the Collector's appsettings.json.
+       It is then started (un-elevated) for the current user.
 
     Run it again to upgrade in place. Undo with uninstall-service.ps1.
 
@@ -18,6 +23,9 @@
 [CmdletBinding()]
 param(
     [string] $InstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Collector'),
+
+    # The Tray's folder. Keep it next to -InstallDir: the Tray looks for ..\Collector\appsettings.json.
+    [string] $TrayInstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Tray'),
 
     # Overwrite an existing appsettings.json in -InstallDir with the one from the repo.
     [switch] $ResetConfig
@@ -30,10 +38,15 @@ $ServiceName = 'DiskMon'
 $DisplayName = 'DiskMon Collector'
 $Description = 'Records free space, top writers and Probe sizes to explain disk-space Swings.'
 $ExeName     = 'DiskMon.Collector.exe'
+$TrayExeName = 'DiskMon.Tray.exe'
+$RunKey      = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
+$RunValue    = 'DiskMonTray'
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
-$project  = Join-Path $repoRoot 'src\DiskMon.Collector\DiskMon.Collector.csproj'
-$staging  = Join-Path $repoRoot 'artifacts\publish\collector'
+$repoRoot     = Split-Path -Parent $PSScriptRoot
+$project      = Join-Path $repoRoot 'src\DiskMon.Collector\DiskMon.Collector.csproj'
+$staging      = Join-Path $repoRoot 'artifacts\publish\collector'
+$trayProject  = Join-Path $repoRoot 'src\DiskMon.Tray\DiskMon.Tray.csproj'
+$trayStaging  = Join-Path $repoRoot 'artifacts\publish\tray'
 
 function Invoke-Native {
     param([string] $What, [scriptblock] $Command)
@@ -51,6 +64,12 @@ Write-Host "Publishing the Collector (Release, win-x64, self-contained)..."
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 Invoke-Native 'dotnet publish' {
     dotnet publish $project -c Release -r win-x64 --self-contained -o $staging --nologo
+}
+
+Write-Host "Publishing the Tray (Release, win-x64, self-contained)..."
+if (Test-Path $trayStaging) { Remove-Item $trayStaging -Recurse -Force }
+Invoke-Native 'dotnet publish (Tray)' {
+    dotnet publish $trayProject -c Release -r win-x64 --self-contained -o $trayStaging --nologo
 }
 
 $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -94,9 +113,27 @@ Write-Host "Starting $ServiceName..."
 Start-Service -Name $ServiceName
 Wait-ServiceStatus 'Running'
 
+# The Tray: every signed-in user may be running a copy, which locks the files; stop them all first.
+Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($TrayExeName)) -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+
+Write-Host "Copying the Tray to $TrayInstallDir..."
+if (Test-Path $TrayInstallDir) { Remove-Item $TrayInstallDir -Recurse -Force }
+New-Item -ItemType Directory -Path $TrayInstallDir -Force | Out-Null
+Copy-Item -Path (Join-Path $trayStaging '*') -Destination $TrayInstallDir -Recurse -Force
+
+$trayExe = Join-Path $TrayInstallDir $TrayExeName
+Write-Host "Adding the Tray to $RunKey ($RunValue) so it starts at every user's logon..."
+New-ItemProperty -Path $RunKey -Name $RunValue -Value "`"$trayExe`"" -PropertyType String -Force | Out-Null
+
+# This script runs elevated; starting the Tray through Explorer runs it as the signed-in user, un-elevated.
+Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -ArgumentList "`"$trayExe`""
+
 $dataDir = Join-Path $env:ProgramData 'DiskMon'
 Write-Host ""
-Write-Host "DiskMon is running as LocalSystem and starts with Windows."
+Write-Host "DiskMon is running as LocalSystem and starts with Windows; the Tray starts at every logon."
 Write-Host "  Binaries: $InstallDir"
+Write-Host "  Tray:     $TrayInstallDir"
 Write-Host "  Database: $(Join-Path $dataDir 'diskmon.db')"
 Write-Host "  Logs:     $(Join-Path $dataDir 'logs')"

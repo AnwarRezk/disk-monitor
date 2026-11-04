@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Stops and removes the DiskMon service and its binaries. Reverses install-service.ps1.
+    Stops and removes the DiskMon service, the Tray, its HKLM Run entry and the binaries. Reverses install-service.ps1.
 
 .DESCRIPTION
     The data folder (%ProgramData%\DiskMon: database and logs) is kept unless -RemoveData is given,
@@ -15,6 +15,8 @@
 param(
     [string] $InstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Collector'),
 
+    [string] $TrayInstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Tray'),
+
     # Also delete %ProgramData%\DiskMon (the database and logs). This cannot be undone.
     [switch] $RemoveData
 )
@@ -23,7 +25,26 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ServiceName = 'DiskMon'
-$dataDir = Join-Path $env:ProgramData 'DiskMon'
+$RunKey      = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
+$RunValue    = 'DiskMonTray'
+$dataDir     = Join-Path $env:ProgramData 'DiskMon'
+
+if (Get-ItemProperty -Path $RunKey -Name $RunValue -ErrorAction SilentlyContinue) {
+    Write-Host "Removing the Tray's Run entry ($RunValue)..."
+    Remove-ItemProperty -Path $RunKey -Name $RunValue
+}
+
+$trays = Get-Process -Name 'DiskMon.Tray' -ErrorAction SilentlyContinue
+if ($trays) {
+    Write-Host "Stopping $(@($trays).Count) running Tray process(es)..."
+    $trays | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
+
+if (Test-Path $TrayInstallDir) {
+    Write-Host "Removing $TrayInstallDir..."
+    Remove-Item $TrayInstallDir -Recurse -Force
+}
 
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($service) {

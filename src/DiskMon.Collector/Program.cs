@@ -5,6 +5,7 @@ using DiskMon.Core.Data;
 using DiskMon.Core.Logging;
 using DiskMon.Core.Sampling;
 using DiskMon.Core.Security;
+using Microsoft.Data.Sqlite;
 using Serilog;
 using Serilog.Events;
 
@@ -68,6 +69,11 @@ try
     builder.Services.AddHostedService<DiskMon.Collector.Samplers.ProcessIoSampler>();
     builder.Services.AddHostedService<DiskMon.Collector.Services.RetentionService>();
 
+    // Hold one connection for the Collector's lifetime so the -wal/-shm files always exist while it runs:
+    // the Tray's read-only reader needs them, and only a stopped Collector sends it to the immutable fallback.
+    // (Pooled connections alone may all be pruned between samples, which would delete those files.)
+    using var keepAlive = db.OpenConnection();
+
     // Samplers and services arrive in M1–M3.
     using var host = builder.Build();
     await host.RunAsync();
@@ -83,6 +89,9 @@ catch (Exception ex)
 }
 finally
 {
+    // Closing every pooled connection lets the last close checkpoint the WAL and delete -wal/-shm, so the
+    // Tray's immutable fallback sees all history while the Collector is stopped.
+    SqliteConnection.ClearAllPools();
     await Log.CloseAndFlushAsync();
 }
 
