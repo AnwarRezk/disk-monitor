@@ -60,35 +60,48 @@ it. Design notes live in [PLAN.md](PLAN.md), the vocabulary in [GLOSSARY.md](GLO
 
 ## Install
 
-Requirements: Windows 10 1809 or later (x64), the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-to build, and an administrator PowerShell.
+Requirements: Windows 10 1809 or later (x64). Nothing else: the setup carries its own .NET runtime.
+
+1. Download `DiskMon-Setup-<version>.exe` from the [latest release](https://github.com/AnwarRezk/disk-monitor/releases/latest).
+2. Run it and accept the administrator prompt. The setup isn't code-signed yet, so Windows SmartScreen may say
+   "Windows protected your PC": choose **More info** → **Run anyway**.
+3. Leave **Open the DiskMon dashboard** ticked on the last page.
+
+The setup:
+
+1. installs the Collector to `%ProgramFiles%\DiskMon\Collector` and registers the `DiskMon` service (automatic start,
+   restarts after a crash), then starts it; it creates `%ProgramData%\DiskMon` with its locked-down ACL on first run;
+2. installs the Tray to `%ProgramFiles%\DiskMon\Tray`, starts it now and at every user's logon;
+3. adds a **DiskMon** shortcut with the logo to the Start menu (and the desktop, unless you untick it). It opens the
+   dashboard, starting the tray icon first if it isn't running.
+
+Run a newer setup to upgrade in place; your `appsettings.json` is kept. It also takes over an install made with the
+old `install-service.ps1` script.
+
+To remove DiskMon, use **Settings → Apps → Installed apps → DiskMon → Uninstall**. It asks whether to delete the
+history and logs in `%ProgramData%\DiskMon` (the default keeps them, so a reinstall continues the same timeline).
+
+Check the service with `sc.exe query DiskMon` (in PowerShell, write `sc.exe`: plain `sc` is `Set-Content`).
+
+### Install from source
+
+With the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), from an administrator PowerShell:
 
 ```powershell
 git clone https://github.com/AnwarRezk/disk-monitor.git
 cd disk-monitor
-.\scripts\install-service.ps1
+.\scripts\install-service.ps1          # same layout as the setup; -ResetConfig replaces appsettings.json
+.\scripts\uninstall-service.ps1        # add -RemoveData to also delete the history and logs
 ```
 
-The script publishes self-contained builds and:
-
-1. installs the Collector to `%ProgramFiles%\DiskMon\Collector` and registers the `DiskMon` service (automatic start);
-2. installs the Tray to `%ProgramFiles%\DiskMon\Tray` and starts it at every user's logon;
-3. starts the service, which creates `%ProgramData%\DiskMon` with its locked-down ACL on first run.
-
-Run it again to upgrade in place; your `appsettings.json` is kept unless you pass `-ResetConfig`.
-
-To remove DiskMon (add `-RemoveData` to also delete the history and logs):
-
-```powershell
-.\scripts\uninstall-service.ps1
-```
-
-Check the service with `sc.exe query DiskMon` (in PowerShell, write `sc.exe`: plain `sc` is `Set-Content`).
+To build the setup yourself, install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+(`winget install JRSoftware.InnoSetup`) and run `.\installer\build.ps1 -Version 0.1.0`; it writes
+`artifacts\installer\DiskMon-Setup-0.1.0.exe`.
 
 ## Use
 
 - **Hover** the tray icon for free space and the change over the last 24 hours.
-- **Double-click** it, or right-click → *Open dashboard*.
+- **Double-click** it, right-click → *Open dashboard*, or start **DiskMon** from the Start menu or desktop.
 - In the dashboard, drag across the chart to zoom (Esc resets), switch ranges at the top of the chart, and use the
   tabs: **Where space is** (Probe sizes), **Swings** (pick one for its detail) and **Top Writers**.
 - Right-click the tray icon for *Probe now* and *Open data folder*.

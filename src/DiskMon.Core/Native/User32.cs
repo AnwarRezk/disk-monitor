@@ -24,6 +24,18 @@ public static partial class User32
             SetWindowLongPtrW(hwnd, GwlStyle, style & ~(nint)WsHScroll);
     }
 
+    private const int AsfwAny = -1;
+
+    /// <summary>
+    /// Lets any process bring a window to the foreground once. A second Tray launch (the Start menu shortcut) calls it
+    /// before asking the running Tray to open its dashboard, which Windows' foreground lock would otherwise keep behind.
+    /// </summary>
+    public static bool AllowAnySetForegroundWindow() => AllowSetForegroundWindow(AsfwAny);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool AllowSetForegroundWindow(int processId);
+
     [LibraryImport("user32.dll", SetLastError = true)]
     private static partial nint GetWindowLongPtrW(nint hwnd, int index);
 
