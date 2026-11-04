@@ -57,6 +57,7 @@ try
 
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(db);
+    builder.Services.AddSingleton<IDbConnectionSource>(db);
     builder.Services.AddSingleton(TimeProvider.System);
 
     // Volume Samples (DIS-7): the free-space timeline, also handed to Swing detection through the channel.
