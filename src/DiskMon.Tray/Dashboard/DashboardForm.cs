@@ -336,7 +336,13 @@ internal sealed class DashboardForm : Form
         var height = Math.Max(chartMin, chart);
         _layoutNote = $"layout {available}: chart {height}, figures {_figures.Height}";
         if (Math.Abs(_root.RowStyles[1].Height - height) > 0.5f)
+        {
             _root.RowStyles[1].Height = height;
+            // This often runs from inside a layout pass (a resize), where the table ignores the new row height until
+            // something lays it out again: do that once the current pass has finished.
+            if (_root.IsHandleCreated)
+                _root.BeginInvoke(() => _root.PerformLayout());
+        }
         UpdateTickDensity();
     }
 
