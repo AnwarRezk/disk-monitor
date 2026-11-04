@@ -85,6 +85,7 @@ internal sealed class DashboardForm : Form
     private TableLayoutPanel? _root;
     private readonly List<Panel> _introBars = [];
     private bool _wasNarrow;
+    private string _layoutNote = "";
     private int _probeBarMax = 170;
     private Control? _ofTotalStat;
     private Control? _changeStat;
@@ -270,6 +271,7 @@ internal sealed class DashboardForm : Form
         root.Controls.Add(BuildTabsCard(), 0, 2);
         Controls.Add(root);
         Controls.Add(_footer);
+        root.SizeChanged += (_, _) => ApplyProportions();
     }
 
     /// <summary>
@@ -291,8 +293,7 @@ internal sealed class DashboardForm : Form
             ShowProbes(_last);
         }
 
-        // From the form's size, not the root panel's: on Resize the docked panel may still have its old size.
-        var available = ClientSize.Height - Padding.Vertical - _footer.Height - HeaderHeight;
+        var available = _root.ClientSize.Height - HeaderHeight;
         var barMax = narrow ? 110 : 170;
         if (_probeList.Columns.Count == 4)
         {
@@ -304,12 +305,16 @@ internal sealed class DashboardForm : Form
         _ofTotalStat!.Visible = !narrow;
         _changeStat!.MinimumSize = narrow ? Size.Empty : new Size(TextRenderer.MeasureText("CHANGE SINCE WED 00:00", Theme.Caption).Width, 0);
         _figures.PerformLayout();
-        var tabsMin = narrow ? 190 : 230;
+        // Room for the tab strip, column headers and at least two whole Probe rows.
+        var tabsMin = Math.Max(narrow ? 0 : 230, 45 + 32 + (int)(2.2 * ProbeRowHeight) + 8);
         const int plotMin = 150;
         var chartMin = _chartCard.Padding.Vertical + _figures.Height + 10 + _legend.Height + plotMin;
         var chart = (int)(available * (narrow ? 0.6 : 0.56));
         chart = Math.Max(chartMin, Math.Min(chart, available - tabsMin));
-        _root.RowStyles[1].Height = Math.Max(chartMin, chart);
+        var height = Math.Max(chartMin, chart);
+        _layoutNote = $"layout {available}: chart {height}, figures {_figures.Height}";
+        if (Math.Abs(_root.RowStyles[1].Height - height) > 0.5f)
+            _root.RowStyles[1].Height = height;
         UpdateTickDensity();
     }
 
@@ -1052,7 +1057,8 @@ internal sealed class DashboardForm : Form
         UpdateTickDensity();
         ShowLegend(s, warnings);
         _footer.Text = $"updated {DateTime.Now:HH:mm:ss} · read in {s.ReadTime.TotalMilliseconds:0} ms · {_points.Count} points"
-            + (s.Mode == ReadOnlyOpenMode.Immutable ? " · read-only snapshot (Collector stopped)" : "");
+            + (s.Mode == ReadOnlyOpenMode.Immutable ? " · read-only snapshot (Collector stopped)" : "")
+            + (_persist ? "" : $" · {_layoutNote}");
         _plot.Refresh();
     }
 
