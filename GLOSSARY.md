@@ -20,7 +20,7 @@ _Avoid_: Watch, suspect, monitor
 The measured size of one Probe at one moment.
 
 **Top Writer**:
-A process ranked by how many bytes it wrote over a period. A ranking signal, not a count of bytes on disk.
+A program ranked by how many bytes its processes wrote over a period, summed over all of its running copies. A ranking signal, not a count of bytes on disk.
 _Avoid_: Culprit, disk writer
 
 ## Swings

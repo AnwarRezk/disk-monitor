@@ -92,4 +92,65 @@ public sealed class TopWriterTrackerTests
         // Same key again (cannot really happen, but proves the old counters were dropped): baseline only.
         Assert.Empty(Next(T2, Snap(100, 0, "a.exe", 600 * MB)));
     }
+
+    [Fact]
+    public void Processes_of_one_program_are_summed_into_one_row()
+    {
+        Next(T0, Snap(1, 0, "claude.exe", 100 * MB, 10 * MB), Snap(2, 0, "claude.exe", 200 * MB, 20 * MB));
+
+        var writer = Assert.Single(Next(T1,
+            Snap(1, 0, "claude.exe", 105 * MB, 11 * MB),
+            Snap(2, 0, "claude.exe", 207 * MB, 22 * MB),
+            Snap(3, T0 + 1_000, "claude.exe", 4 * MB, 1 * MB)));   // new copy started during the interval
+
+        Assert.Equal(new ProcessIoDelta("claude.exe", @"C:\Apps\claude.exe", 16 * MB, 4 * MB), writer);
+    }
+
+    [Fact]
+    public void The_minimum_applies_to_the_sum_not_to_each_process()
+    {
+        const long sixTenthsMB = 6 * MB / 10;
+        Next(T0, Snap(1, 0, "a.exe", 0), Snap(2, 0, "a.exe", 0), Snap(3, 0, "b.exe", 0));
+
+        var writer = Assert.Single(Next(T1,
+            Snap(1, 0, "a.exe", sixTenthsMB),
+            Snap(2, 0, "a.exe", sixTenthsMB),     // 0.6 MB + 0.6 MB = 1.2 MB: kept
+            Snap(3, 0, "b.exe", sixTenthsMB)));   // 0.6 MB alone: dropped
+
+        Assert.Equal(("a.exe", 2 * sixTenthsMB), (writer.Name, writer.WriteBytes));
+    }
+
+    [Fact]
+    public void Ranking_and_the_top_n_cut_use_the_sums()
+    {
+        // Twelve copies of a browser would have filled every slot when ranked per process.
+        var browser = Enumerable.Range(1, 12).ToArray();
+        Next(T0, [.. browser.Select(i => Snap(i, 0, "browser.exe", 0)), Snap(50, 0, "big.exe", 0), Snap(51, 0, "mid.exe", 0)]);
+
+        var writers = _tracker.Next(T1,
+        [
+            .. browser.Select(i => Snap(i, 0, "browser.exe", 5 * MB)),   // 60 MB in total
+            Snap(50, 0, "big.exe", 40 * MB),
+            Snap(51, 0, "mid.exe", 30 * MB),
+        ], count: 2, minWriteBytes: MB);
+
+        Assert.Equal([("browser.exe", 60 * MB), ("big.exe", 40 * MB)], writers.Select(w => (w.Name, w.WriteBytes)));
+    }
+
+    [Fact]
+    public void A_program_is_its_name_and_exe_path_ignoring_case()
+    {
+        ProcessIoSnapshot At(int pid, string name, string? exePath, long write) =>
+            new(new ProcessKey(pid, 0), name, exePath, 0, (ulong)write);
+
+        Next(T0, At(1, "app.exe", @"C:\A\app.exe", 0), At(2, "APP.EXE", @"c:\a\APP.exe", 0),
+            At(3, "app.exe", @"C:\B\app.exe", 0), At(4, "System", null, 0), At(5, "System", null, 0));
+
+        var writers = Next(T1, At(1, "app.exe", @"C:\A\app.exe", 2 * MB), At(2, "APP.EXE", @"c:\a\APP.exe", 3 * MB),
+            At(3, "app.exe", @"C:\B\app.exe", 4 * MB), At(4, "System", null, 1 * MB), At(5, "System", null, 1 * MB));
+
+        Assert.Equal(
+            [(@"C:\A\app.exe", 5 * MB), (@"C:\B\app.exe", 4 * MB), (null, 2 * MB)],
+            writers.Select(w => (w.ExePath, w.WriteBytes)));
+    }
 }
