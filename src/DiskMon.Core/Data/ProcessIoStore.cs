@@ -38,7 +38,7 @@ public static class ProcessIoStore
     /// stored Top Writers count, so a program that rarely made the top 10 is under-counted: a ranking, not a total.
     /// </summary>
     public static IReadOnlyList<WriterTotal> TopWriters(SqliteConnection connection, long fromTs, long toTs, int count) =>
-        connection.Query<WriterTotal>(
+        connection.Query<WriterRow>(
             """
             WITH per_path AS (
                 SELECT p.name AS name, p.exe_path AS exe_path,
@@ -60,7 +60,20 @@ public static class ProcessIoStore
             ORDER BY total_write DESC, name
             LIMIT @count
             """,
-            new { fromTs, toTs, count }).AsList();
+            new { fromTs, toTs, count })
+            .Select(r => new WriterTotal(r.Name, r.ExePath, r.WriteBytes, r.ReadBytes, r.OtherPaths))
+            .ToList();
+
+    // Settable properties, not a constructor: with no rows SQLite reports computed columns as BLOB, which no
+    // constructor signature matches.
+    private sealed class WriterRow
+    {
+        public string Name { get; set; } = "";
+        public string? ExePath { get; set; }
+        public long WriteBytes { get; set; }
+        public long ReadBytes { get; set; }
+        public long OtherPaths { get; set; }
+    }
 
     // Not cached across calls: retention may prune a process row between intervals.
     // "IS" rather than "=" because exe_path is NULL for processes without an image (System, Registry, ...),

@@ -14,10 +14,15 @@ public sealed record SwingRow(
     long? TsEnd,
     long? UsedDeltaBytes,
     long? AttributedBytes,
-    long? UnaccountedBytes);
+    long? UnaccountedBytes,
+    long? ProbeWindowStart = null,
+    long? ProbeWindowEnd = null);
 
 /// <summary>One attributed item of a Swing: <c>probe</c> deltas count towards Attributed, <c>process</c> write bytes only rank.</summary>
 public sealed record SwingItem(string Source, string Label, string? Path, long DeltaBytes);
+
+/// <summary>A Swing waiting for Attribution: its move has ended and its after-side Probe run may not have finished.</summary>
+public sealed record ClosingSwing(long Id, string Volume, long TsStart, long TsEnd, long UsedDeltaBytes);
 
 /// <summary>A Swing the Collector left Open, as read back at startup.</summary>
 public sealed record StoredOpenSwing(long Id, string Volume, SwingKind Kind, long TsStart);
@@ -60,6 +65,43 @@ public sealed class SwingStore(IDbConnectionSource db)
             new { volume, kind = KindText(kind), tsStart, tsEnd, usedDeltaBytes });
     }
 
+    /// <summary>Swings in Closing, oldest first.</summary>
+    public IReadOnlyList<ClosingSwing> ClosingSwings()
+    {
+        using var connection = db.OpenConnection();
+        return connection.Query<ClosingSwing>(
+            """
+            SELECT id AS Id, volume AS Volume, ts_start AS TsStart, ts_end AS TsEnd, used_delta_bytes AS UsedDeltaBytes
+            FROM swings
+            WHERE stage = 'closing' AND ts_end IS NOT NULL AND used_delta_bytes IS NOT NULL
+            ORDER BY ts_start, id
+            """).AsList();
+    }
+
+    /// <summary>
+    /// Stores a Swing's Attribution and moves it to Closed, in one transaction. Does nothing (and returns false) unless
+    /// the Swing is still Closing, so attributing twice can't duplicate its items.
+    /// </summary>
+    public bool Close(long id, AttributionResult result)
+    {
+        using var connection = db.OpenConnection();
+        using var tx = connection.BeginTransaction();
+        var updated = connection.Execute(
+            """
+            UPDATE swings SET stage = 'closed', probe_window_start = @ProbeWindowStart, probe_window_end = @ProbeWindowEnd,
+                              attributed_bytes = @AttributedBytes, unaccounted_bytes = @UnaccountedBytes
+            WHERE id = @id AND stage = 'closing'
+            """,
+            new { id, result.ProbeWindowStart, result.ProbeWindowEnd, result.AttributedBytes, result.UnaccountedBytes }, tx);
+        if (updated == 0)
+            return false;
+        connection.Execute(
+            "INSERT INTO swing_items (swing_id, source, label, path, delta_bytes, rank) VALUES (@id, @Source, @Label, @Path, @DeltaBytes, @Rank)",
+            result.Items.Select(i => new { id, i.Source, i.Label, i.Path, i.DeltaBytes, i.Rank }), tx);
+        tx.Commit();
+        return true;
+    }
+
     /// <summary>Swings still Open, oldest first: at most one per Volume while the Collector runs.</summary>
     public IReadOnlyList<StoredOpenSwing> OpenSwings()
     {
@@ -81,7 +123,8 @@ public sealed class SwingStore(IDbConnectionSource db)
             """
             SELECT id AS Id, volume AS Volume, kind AS Kind, stage AS Stage, across_downtime AS AcrossDowntime,
                    ts_start AS TsStart, ts_end AS TsEnd, used_delta_bytes AS UsedDeltaBytes,
-                   attributed_bytes AS AttributedBytes, unaccounted_bytes AS UnaccountedBytes
+                   attributed_bytes AS AttributedBytes, unaccounted_bytes AS UnaccountedBytes,
+                   probe_window_start AS ProbeWindowStart, probe_window_end AS ProbeWindowEnd
             FROM swings
             WHERE volume = @volume AND ts_start <= @toTs AND (ts_end IS NULL OR ts_end >= @fromTs)
             ORDER BY ts_start DESC
@@ -89,7 +132,7 @@ public sealed class SwingStore(IDbConnectionSource db)
             new { volume, fromTs, toTs })
             .Select(r => new SwingRow(
                 r.Id, r.Volume, r.Kind, r.Stage, r.AcrossDowntime != 0, r.TsStart, r.TsEnd,
-                r.UsedDeltaBytes, r.AttributedBytes, r.UnaccountedBytes))
+                r.UsedDeltaBytes, r.AttributedBytes, r.UnaccountedBytes, r.ProbeWindowStart, r.ProbeWindowEnd))
             .ToList();
     }
 
@@ -109,5 +152,5 @@ public sealed class SwingStore(IDbConnectionSource db)
     // SQLite has no boolean type, so across_downtime arrives as an integer.
     private sealed record Row(
         long Id, string Volume, string Kind, string Stage, long AcrossDowntime, long TsStart, long? TsEnd,
-        long? UsedDeltaBytes, long? AttributedBytes, long? UnaccountedBytes);
+        long? UsedDeltaBytes, long? AttributedBytes, long? UnaccountedBytes, long? ProbeWindowStart, long? ProbeWindowEnd);
 }

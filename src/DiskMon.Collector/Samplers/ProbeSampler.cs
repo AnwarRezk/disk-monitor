@@ -11,7 +11,7 @@ public sealed record ProbeRunSummary(long Ts, int Probes, int Errors, long Total
 /// <summary>
 /// Measures every Probe, VSS shadow storage included, at startup and every <c>Intervals:ProbeRunMinutes</c>
 /// (default 10), and on demand through <see cref="RunNowAsync"/> (the pipe's <c>probe_now</c>, and Swing open and
-/// close later). Only one run happens at a time: asking during a run joins it. A run completes once all its Probe
+/// close). Only one run happens at a time: asking during a run joins it. A run completes once all its Probe
 /// Samples are written. The Probe list is re-expanded and upserted at each run, so a new profile is picked up.
 /// </summary>
 public sealed class ProbeSampler(
@@ -25,6 +25,12 @@ public sealed class ProbeSampler(
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ProbeExpander _expander = new(ProbeExpander.DefaultUsersRoot);
     private readonly ProbeRunner _runner = new(shadowStorage, TimeSpan.FromSeconds(options.Intervals.ProbeTimeoutSeconds));
+
+    /// <summary>
+    /// Raised on the run's thread once a run's Probe Samples are stored, whoever started it (schedule, pipe or
+    /// Swing). Swing Attribution waits on it.
+    /// </summary>
+    public event Action<ProbeRunSummary>? RunCompleted;
 
     /// <summary>
     /// Starts a run, or joins the one in progress, and completes when its Probe Samples are written.
@@ -97,6 +103,16 @@ public sealed class ProbeSampler(
             "Probe run: {Probes} Probes, {TotalBytes} bytes, {Errors} with errors, in {DurationMs} ms",
             summary.Probes, summary.TotalBytes, summary.Errors, summary.DurationMs);
         logger.LogInformation("Largest Probes: {Largest}", Largest(results, LargestInLog));
+
+        try
+        {
+            RunCompleted?.Invoke(summary);
+        }
+        catch (Exception ex)
+        {
+            // A failing listener mustn't fail the run: its samples are stored.
+            logger.LogError(ex, "Handling the end of a Probe run failed");
+        }
         return summary;
     }
 
