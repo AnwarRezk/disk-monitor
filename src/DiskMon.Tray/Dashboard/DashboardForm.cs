@@ -559,6 +559,7 @@ internal sealed class DashboardForm : Form
         _itemList.CellPainter = PaintItemCell;
         _itemList.ShowItemToolTips = true;
         _itemList.SelectedIndexChanged += (_, _) => _openLocation.Enabled = SelectedItemPath() is not null;
+        _tips.SetToolTip(_openLocation, "Open the selected row's folder in Explorer (or select its file). Double-click a row does the same.");
         _itemList.DoubleClick += (_, _) => OpenSelectedLocation();
         _itemList.KeyDown += (_, e) =>
         {
@@ -1416,6 +1417,10 @@ internal sealed class DashboardForm : Form
                 (w.Path ?? w.Label) + "\nBytes written during the Swing: a ranking signal, not bytes on disk (not counted in Attributed).");
         foreach (ListViewItem item in _itemList.Items)
             item.Selected = kept is not null && item.SubItems[1].Text + "|" + item.SubItems[0].Text == kept;
+        // Nothing chosen yet: select the first row with a location, so "Open location" works straight away.
+        if (_itemList.SelectedItems.Count == 0
+            && _itemList.Items.Cast<ListViewItem>().FirstOrDefault(i => i.Tag is DetailRow { Path.Length: > 0 }) is { } first)
+            first.Selected = true;
         _itemList.EndUpdate();
         // Start at the top (the Probe items) unless a kept selection is further down.
         if (_itemList.Items.Count > 0)
