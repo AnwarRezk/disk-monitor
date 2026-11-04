@@ -1,3 +1,4 @@
+using DiskMon.Core;
 using DiskMon.Core.Config;
 using DiskMon.Core.Data;
 using DiskMon.Core.Probes;
@@ -95,8 +96,19 @@ public sealed class ProbeSampler(
         logger.LogInformation(
             "Probe run: {Probes} Probes, {TotalBytes} bytes, {Errors} with errors, in {DurationMs} ms",
             summary.Probes, summary.TotalBytes, summary.Errors, summary.DurationMs);
+        logger.LogInformation("Largest Probes: {Largest}", Largest(results, LargestInLog));
         return summary;
     }
+
+    /// <summary>How many Probes the run's log line names, biggest first. One line per run keeps the log small.</summary>
+    private const int LargestInLog = 8;
+
+    private static string Largest(IReadOnlyList<ProbeResult> results, int count) =>
+        string.Join(", ", results
+            .Where(r => r.Measurement.SizeBytes > 0)
+            .OrderByDescending(r => r.Measurement.SizeBytes)
+            .Take(count)
+            .Select(r => $"{r.Probe.Name} {r.Measurement.SizeBytes / (double)Bytes.GB:0.0} GB"));
 
     private static async Task<bool> WaitAsync(PeriodicTimer timer, CancellationToken token)
     {
