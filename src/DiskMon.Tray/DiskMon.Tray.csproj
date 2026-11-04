@@ -8,11 +8,18 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>DiskMon.Tray</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\..\assets\diskmon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.14" />
     <PackageReference Include="ScottPlot.WinForms" Version="5.1.59" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Logical names are what AppIcons asks for. -->
+    <EmbeddedResource Include="..\..\assets\diskmon.ico" LogicalName="DiskMon.Tray.diskmon.ico" />
+    <EmbeddedResource Include="logo-128.png" LogicalName="DiskMon.Tray.logo-128.png" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,6 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>DiskMon.Collector</RootNamespace>
+    <ApplicationIcon>..\..\assets\diskmon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

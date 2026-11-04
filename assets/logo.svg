@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>DiskMon</title>
+  <defs>
+    <linearGradient id="dm-ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2d2150"/>
+      <stop offset="1" stop-color="#150f23"/>
+    </linearGradient>
+    <linearGradient id="dm-arc" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#6a5fc1"/>
+      <stop offset="1" stop-color="#fa7faa"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#dm-ground)"/>
+  <rect x="9.5" y="9.5" width="237" height="237" rx="54.5" fill="none" stroke="#362d59" stroke-width="3"/>
+  <!-- Free space: the track. Used space: the 270° arc, violet rising to pink. The lime spindle: the disk. -->
+  <circle cx="128" cy="128" r="72" fill="none" stroke="#362d59" stroke-width="26"/>
+  <path d="M 77.1 178.9 A 72 72 0 1 1 178.9 77.1" fill="none" stroke="url(#dm-arc)" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="128" cy="128" r="16" fill="#c2ef4e"/>
+</svg>
