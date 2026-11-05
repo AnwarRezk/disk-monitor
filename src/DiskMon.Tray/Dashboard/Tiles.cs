@@ -130,7 +130,9 @@ internal sealed class StatTile : Control
         var y = Math.Max(10, (Height - height) / 2);
         TextRenderer.DrawText(g, _caption, Theme.Small, new Rectangle(16, y, width, Theme.Small.Height), Theme.Muted, flags);
         y += Theme.Small.Height + 6;
-        TextRenderer.DrawText(g, _value, Theme.TileValue, new Rectangle(15, y, width + 1, Theme.TileValue.Height), _valueColor, flags);
+        // A narrow tile steps the figure down a size before it would have to cut it short.
+        var font = TextRenderer.MeasureText(_value, Theme.TileValue, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width <= width + 1 ? Theme.TileValue : Theme.ForecastValue;
+        TextRenderer.DrawText(g, _value, font, new Rectangle(15, y + Theme.TileValue.Height - font.Height, width + 1, font.Height), _valueColor, flags);
         y += Theme.TileValue.Height + 2;
         TextRenderer.DrawText(g, _detail, Theme.Small, new Rectangle(16, y, width, Theme.Small.Height + 2), Theme.Faint, flags);
     }

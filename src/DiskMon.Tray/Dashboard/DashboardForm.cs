@@ -386,7 +386,8 @@ internal sealed class DashboardForm : Form
         _probeInfo.Visible = !narrow;
         foreach (var intro in _introBars)
             intro.Visible = !narrow;
-        _summary.ColumnStyles[0].Width = LogicalToDeviceUnits(narrow ? 310 : 400);
+        // Table column widths are device pixels here (the table isn't rescaled after a DPI-aware start): sized for 125%.
+        _summary.ColumnStyles[0].Width = narrow ? 320 : 420;
         if (narrow != _wasNarrow && _last is not null)
         {
             _wasNarrow = narrow;
@@ -409,7 +410,7 @@ internal sealed class DashboardForm : Form
         var chart = (int)(available * (narrow ? 0.58 : 0.55));
         chart = Math.Max(chartMin, Math.Min(chart, available - tabsMin));
         var height = Math.Max(chartMin, chart);
-        // The tiles get two rows when two Probe rows still fit under them, one row when one row (and a bit) does, else
+        // The tiles get two rows when a Probe row (and a bit) still fits under them, else one row when that fits, else
         // the list stays alone.
         var tabs = available - height;
         // The strips and Probe rows are fixed pixel heights (row height comes from the font, already in device pixels).
@@ -417,7 +418,7 @@ internal sealed class DashboardForm : Form
         var full = _tiles.Wanted(compact: false) + LogicalToDeviceUnits(6);
         var compact = _tiles.Wanted(compact: true) + LogicalToDeviceUnits(6);
         var row = ProbeRowHeight;
-        if (listRoom - full >= 2 * row)
+        if (listRoom - full >= row + 20)
         {
             _tiles.Compact = false;
             _tilesHolder.Height = full;
