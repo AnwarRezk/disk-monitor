@@ -1627,6 +1627,8 @@ internal sealed class DashboardForm : Form
         _itemList.Columns.Add(new ColumnHeader { Text = "What changed", Width = 300, Tag = 100 });
         _itemList.ProportionalColumns = true;
         _itemList.HeaderStyle = ColumnHeaderStyle.None;
+        // Keep the chosen row visible while the focus is elsewhere (it is what Open location opens).
+        _itemList.HideSelection = false;
         _itemList.CellPainter = PaintItemCell;
         _itemList.ShowItemToolTips = true;
         _itemList.SelectedIndexChanged += (_, _) => _openLocation.Enabled = SelectedItemPath() is not null;
@@ -1672,6 +1674,14 @@ internal sealed class DashboardForm : Form
 
         var same = _drawerSwing?.Id == swing.Id;
         _drawerSwing = swing;
+        // Show the drawer before filling it: a list without a window handle reports no selection, which would leave
+        // Open location disabled.
+        if (!_drawer.Visible)
+        {
+            PlaceDrawer();
+            _drawer.Visible = true;
+            _drawer.BringToFront();
+        }
         var kept = same && _itemList.SelectedItems.Count > 0 ? _itemList.SelectedItems[0].SubItems[1].Text + "|" + _itemList.SelectedItems[0].SubItems[0].Text : null;
         var probes = items.Where(i => i.Source != Attribution.ProcessSource).ToList();
         var writers = items.Where(i => i.Source == Attribution.ProcessSource).Take(DetailWritersShown).ToList();
@@ -1719,12 +1729,6 @@ internal sealed class DashboardForm : Form
         foreach (var chip in _lane.Controls.OfType<SwingChip>())
             chip.Selected = chip.Swing.Id == swing.Id;
 
-        if (!_drawer.Visible)
-        {
-            PlaceDrawer();
-            _drawer.Visible = true;
-            _drawer.BringToFront();
-        }
         _drawerHeader.Invalidate();
         if (!refresh)
             _itemList.Focus();
