@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    The setup's service steps: stop DiskMon before files are replaced, register and start the service after,
-    and remove it on uninstall. DiskMon-Setup.exe runs it elevated; it is not meant to be run by hand
+    The setup's service steps: stop DiskDrift before files are replaced, register and start the service after,
+    and remove it on uninstall. DiskDrift-Setup.exe runs it elevated; it is not meant to be run by hand
     (use scripts/install-service.ps1 to install from source).
 
 .PARAMETER Action
-    Stop    - stop every running Tray and the DiskMon service, and wait until their files are free.
-    Install - create the DiskMon service (or point the existing one at -AppDir), set restart-on-failure, start it.
+    Stop    - stop every running Tray and the DiskDrift service, and wait until their files are free.
+    Install - create the DiskDrift service (or point the existing one at -AppDir), set restart-on-failure, start it.
     Remove  - Stop, then delete the service.
 #>
 [CmdletBinding()]
@@ -21,8 +21,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ServiceName = 'DiskMon'
-$DisplayName = 'DiskMon Collector'
+$ServiceName = 'DiskDrift'
+$DisplayName = 'DiskDrift Collector'
 $Description = 'Records free space, top writers and Probe sizes to explain disk-space Swings.'
 $CollectorDir = Join-Path $AppDir 'Collector'
 $TrayDir      = Join-Path $AppDir 'Tray'
@@ -49,9 +49,9 @@ function Wait-FolderProcessesExit {
     }
 }
 
-function Stop-DiskMon {
+function Stop-DiskDrift {
     # Every signed-in user may be running a Tray, which locks its files; as an administrator we can stop them all.
-    Get-Process -Name 'DiskMon.Tray' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process -Name 'DiskDrift.Tray' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Wait-FolderProcessesExit $TrayDir
 
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -65,10 +65,10 @@ function Stop-DiskMon {
 
 try {
 switch ($Action) {
-    'Stop' { Stop-DiskMon }
+    'Stop' { Stop-DiskDrift }
 
     'Install' {
-        $binPath = "`"$(Join-Path $CollectorDir 'DiskMon.Collector.exe')`""
+        $binPath = "`"$(Join-Path $CollectorDir 'DiskDrift.Collector.exe')`""
         if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
             Write-Host "Updating the $ServiceName service..."
             # Written to the registry directly: sc.exe config mangles a quoted binPath under Windows PowerShell 5.1.
@@ -93,7 +93,7 @@ switch ($Action) {
     }
 
     'Remove' {
-        Stop-DiskMon
+        Stop-DiskDrift
         if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
             Write-Host "Removing the $ServiceName service..."
             Invoke-Native 'sc.exe delete' { sc.exe delete $ServiceName }

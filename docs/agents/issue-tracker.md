@@ -1,6 +1,6 @@
 # Issue tracker: Linear
 
-Issues and specs for DiskMon live in **Linear**, workspace `disk-monitor`, team **DIS** (https://linear.app/disk-monitor/team/DIS/active). Issue identifiers look like `DIS-123`.
+Issues and specs for diskdrift live in **Linear**, workspace `disk-monitor`, team **DIS** (https://linear.app/disk-monitor/team/DIS/active). Issue identifiers look like `DIS-123`.
 
 Use the Linear MCP connector (tools such as `create_issue`, `get_issue`, `list_issues`, `update_issue`, `create_comment`) when it is available in the session. If no Linear tool is available, don't guess at an API: write the issue out in full (title, description, labels, parent, blockers) for the user to paste into Linear, and say so.
 

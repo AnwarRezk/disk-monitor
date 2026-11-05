@@ -1,13 +1,13 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Creates (or, with -Cleanup, deletes) a file of a given size to produce test Swings for DiskMon.
+    Creates (or, with -Cleanup, deletes) a file of a given size to produce test Swings for DiskDrift.
 
 .DESCRIPTION
-    Creates diskmon-simulate.bin of -SizeGB with fsutil file createnew, which allocates the space at once, so C:
+    Creates diskdrift-simulate.bin of -SizeGB with fsutil file createnew, which allocates the space at once, so C:
     free space drops in one step:
       -Location temp      your Temp folder (%LOCALAPPDATA%\Temp), which the "User Temp" Probe covers;
-      -Location unprobed  C:\DiskMonSimulate, which no Probe covers, so the Swing shows up as Unaccounted.
+      -Location unprobed  C:\DiskDriftSimulate, which no Probe covers, so the Swing shows up as Unaccounted.
     Run it again with -Cleanup to delete the file (a Release Swing). With -DeleteAfterMinutes the script waits and
     deletes it itself, which produces a Growth Swing followed by a Release Swing.
 
@@ -23,9 +23,9 @@
 
 .EXAMPLE
     # A Swing across Downtime.
-    sc.exe stop DiskMon
+    sc.exe stop DiskDrift
     scripts/simulate-growth.ps1 -SizeGB 2 -Location unprobed
-    sc.exe start DiskMon
+    sc.exe start DiskDrift
 #>
 [CmdletBinding()]
 param(
@@ -46,10 +46,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$FileName = 'diskmon-simulate.bin'
+$FileName = 'diskdrift-simulate.bin'
 $folder = switch ($Location) {
     'temp'     { Join-Path $env:LOCALAPPDATA 'Temp' }
-    'unprobed' { 'C:\DiskMonSimulate' }
+    'unprobed' { 'C:\DiskDriftSimulate' }
 }
 $path = Join-Path $folder $FileName
 

@@ -1,6 +1,6 @@
 # Space findings
 
-This page records what DiskMon has found on real machines, and how to get the space back. Add new findings at the top. When a finding becomes a feature, such as a hint in the dashboard or a cleanup rule (M5), link its ticket here.
+This page records what diskdrift has found on real machines, and how to get the space back. Add new findings at the top. When a finding becomes a feature, such as a hint in the dashboard or a cleanup rule (M5), link its ticket here.
 
 ## 2026-11-04: WSL and Docker virtual disks (author's PC)
 
@@ -21,4 +21,4 @@ The first Probe runs (DIS-12) totalled about 179 GB. The largest Probes were:
 - WSL distro: run `wsl --manage <distro> --set-sparse true` once, so the disk gives freed space back from then on. On Hyper-V editions, you can also compact a disk directly with `Optimize-VHD -Path <file.vhdx> -Mode Full`.
 - npm and pnpm caches: `npm cache clean --force`, `pnpm store prune`.
 
-**Note for DiskMon:** Probe sizes are logical sizes. A sparse `.vhdx` can report more than it takes on disk.
+**Note for diskdrift:** Probe sizes are logical sizes. A sparse `.vhdx` can report more than it takes on disk.

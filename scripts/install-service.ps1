@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Publishes the DiskMon Collector and installs it as the auto-start LocalSystem service "DiskMon",
+    Publishes the DiskDrift Collector and installs it as the auto-start LocalSystem service "DiskDrift",
     then installs the Tray and starts it at logon for every user.
 
 .DESCRIPTION
@@ -11,7 +11,7 @@
        An existing appsettings.json there is kept, so local config survives a reinstall.
     3. Creates the service (or updates its path), sets restart-on-failure, and starts it.
     4. Stops any running Tray, copies it to -TrayInstallDir, and adds the machine-wide
-       HKLM\Software\Microsoft\Windows\CurrentVersion\Run value "DiskMonTray" so it starts at every
+       HKLM\Software\Microsoft\Windows\CurrentVersion\Run value "DiskDriftTray" so it starts at every
        user's logon. The Tray reads its colour thresholds from the Collector's appsettings.json.
        It is then started (un-elevated) for the current user.
 
@@ -22,10 +22,10 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $InstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Collector'),
+    [string] $InstallDir = (Join-Path $env:ProgramFiles 'DiskDrift\Collector'),
 
     # The Tray's folder. Keep it next to -InstallDir: the Tray looks for ..\Collector\appsettings.json.
-    [string] $TrayInstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Tray'),
+    [string] $TrayInstallDir = (Join-Path $env:ProgramFiles 'DiskDrift\Tray'),
 
     # Overwrite an existing appsettings.json in -InstallDir with the one from the repo.
     [switch] $ResetConfig
@@ -34,18 +34,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ServiceName = 'DiskMon'
-$DisplayName = 'DiskMon Collector'
+$ServiceName = 'DiskDrift'
+$DisplayName = 'DiskDrift Collector'
 $Description = 'Records free space, top writers and Probe sizes to explain disk-space Swings.'
-$ExeName     = 'DiskMon.Collector.exe'
-$TrayExeName = 'DiskMon.Tray.exe'
+$ExeName     = 'DiskDrift.Collector.exe'
+$TrayExeName = 'DiskDrift.Tray.exe'
 $RunKey      = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
-$RunValue    = 'DiskMonTray'
+$RunValue    = 'DiskDriftTray'
 
 $repoRoot     = Split-Path -Parent $PSScriptRoot
-$project      = Join-Path $repoRoot 'src\DiskMon.Collector\DiskMon.Collector.csproj'
+$project      = Join-Path $repoRoot 'src\DiskDrift.Collector\DiskDrift.Collector.csproj'
 $staging      = Join-Path $repoRoot 'artifacts\publish\collector'
-$trayProject  = Join-Path $repoRoot 'src\DiskMon.Tray\DiskMon.Tray.csproj'
+$trayProject  = Join-Path $repoRoot 'src\DiskDrift.Tray\DiskDrift.Tray.csproj'
 $trayStaging  = Join-Path $repoRoot 'artifacts\publish\tray'
 
 function Invoke-Native {
@@ -147,10 +147,10 @@ New-ItemProperty -Path $RunKey -Name $RunValue -Value "`"$trayExe`"" -PropertyTy
 # This script runs elevated; starting the Tray through Explorer runs it as the signed-in user, un-elevated.
 Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -ArgumentList "`"$trayExe`""
 
-$dataDir = Join-Path $env:ProgramData 'DiskMon'
+$dataDir = Join-Path $env:ProgramData 'DiskDrift'
 Write-Host ""
-Write-Host "DiskMon is running as LocalSystem and starts with Windows; the Tray starts at every logon."
+Write-Host "DiskDrift is running as LocalSystem and starts with Windows; the Tray starts at every logon."
 Write-Host "  Binaries: $InstallDir"
 Write-Host "  Tray:     $TrayInstallDir"
-Write-Host "  Database: $(Join-Path $dataDir 'diskmon.db')"
+Write-Host "  Database: $(Join-Path $dataDir 'diskdrift.db')"
 Write-Host "  Logs:     $(Join-Path $dataDir 'logs')"

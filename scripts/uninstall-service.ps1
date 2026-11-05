@@ -1,10 +1,10 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Stops and removes the DiskMon service, the Tray, its HKLM Run entry and the binaries. Reverses install-service.ps1.
+    Stops and removes the DiskDrift service, the Tray, its HKLM Run entry and the binaries. Reverses install-service.ps1.
 
 .DESCRIPTION
-    The data folder (%ProgramData%\DiskMon: database and logs) is kept unless -RemoveData is given,
+    The data folder (%ProgramData%\DiskDrift: database and logs) is kept unless -RemoveData is given,
     so reinstalling continues the same timeline.
 
 .EXAMPLE
@@ -13,21 +13,21 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $InstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Collector'),
+    [string] $InstallDir = (Join-Path $env:ProgramFiles 'DiskDrift\Collector'),
 
-    [string] $TrayInstallDir = (Join-Path $env:ProgramFiles 'DiskMon\Tray'),
+    [string] $TrayInstallDir = (Join-Path $env:ProgramFiles 'DiskDrift\Tray'),
 
-    # Also delete %ProgramData%\DiskMon (the database and logs). This cannot be undone.
+    # Also delete %ProgramData%\DiskDrift (the database and logs). This cannot be undone.
     [switch] $RemoveData
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ServiceName = 'DiskMon'
+$ServiceName = 'DiskDrift'
 $RunKey      = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
-$RunValue    = 'DiskMonTray'
-$dataDir     = Join-Path $env:ProgramData 'DiskMon'
+$RunValue    = 'DiskDriftTray'
+$dataDir     = Join-Path $env:ProgramData 'DiskDrift'
 
 # A service reports Stopped a moment before its process exits and releases its files (clrjit.dll, ...),
 # so wait for every process running from $Dir to be gone before touching it.
@@ -50,7 +50,7 @@ if (Get-ItemProperty -Path $RunKey -Name $RunValue -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $RunKey -Name $RunValue
 }
 
-$trays = Get-Process -Name 'DiskMon.Tray' -ErrorAction SilentlyContinue
+$trays = Get-Process -Name 'DiskDrift.Tray' -ErrorAction SilentlyContinue
 if ($trays) {
     Write-Host "Stopping $(@($trays).Count) running Tray process(es)..."
     $trays | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -81,7 +81,7 @@ if (Test-Path $InstallDir) {
     Write-Host "Removing $InstallDir..."
     Remove-Item $InstallDir -Recurse -Force
     $parent = Split-Path -Parent $InstallDir
-    if ((Split-Path -Leaf $parent) -eq 'DiskMon' -and -not (Get-ChildItem $parent -Force)) {
+    if ((Split-Path -Leaf $parent) -eq 'DiskDrift' -and -not (Get-ChildItem $parent -Force)) {
         Remove-Item $parent -Force
     }
 }
@@ -95,4 +95,4 @@ if ($RemoveData) {
     Write-Host "Kept $dataDir (database and logs). Use -RemoveData to delete it."
 }
 
-Write-Host "DiskMon is uninstalled."
+Write-Host "DiskDrift is uninstalled."

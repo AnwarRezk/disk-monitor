@@ -22,13 +22,13 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore DiskMon.sln
+        run: dotnet restore DiskDrift.sln
 
       - name: Build
-        run: dotnet build DiskMon.sln --configuration Release --no-restore
+        run: dotnet build DiskDrift.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test DiskMon.sln --configuration Release --no-build --logger "trx;LogFileName=results.trx" --results-directory TestResults
+        run: dotnet test DiskDrift.sln --configuration Release --no-build --logger "trx;LogFileName=results.trx" --results-directory TestResults
 
       - name: Upload test results
         if: always()
@@ -70,8 +70,8 @@ jobs:
       - name: Upload the setup
         uses: actions/upload-artifact@v4
         with:
-          name: DiskMon-Setup-${{ steps.version.outputs.version }}
-          path: artifacts/installer/DiskMon-Setup-*.exe
+          name: DiskDrift-Setup-${{ steps.version.outputs.version }}
+          path: artifacts/installer/DiskDrift-Setup-*.exe
 
       - name: Publish the release
         if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
@@ -79,6 +79,6 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: DiskMon ${{ steps.version.outputs.version }}
+          name: DiskDrift ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: artifacts/installer/DiskMon-Setup-*.exe
+          files: artifacts/installer/DiskDrift-Setup-*.exe

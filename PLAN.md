@@ -1,4 +1,4 @@
-# DiskMon — Implementation Plan
+# diskdrift — Implementation Plan
 
 Windows disk-space monitor that records **when** free space changes, **what** grew or shrank, and **which process** was writing, with one-click "open location".
 
@@ -40,11 +40,11 @@ Vocabulary follows [`GLOSSARY.md`](GLOSSARY.md); the reasons behind non-obvious 
 |---|---|---|
 | Language/runtime | C# / .NET 10 (`net10.0-windows`) | First-class Win32 P/Invoke, WMI, Windows Service hosting, WinForms tray |
 | Process model | **Collector**: elevated Windows Service (LocalSystem), the only writer. **Tray**: normal user process | 24/7 coverage including overnight Windows Update/VSS work; VSS/WMI, all-process I/O counters and USN need admin. [ADR 0001](docs/adr/0001-collector-service-plus-tray.md) |
-| IPC | **Named pipe** `DiskMon` (JSON lines: `ping`, `probe_now`); the Tray only reads the DB | Users must not be able to rewrite history. [ADR 0002](docs/adr/0002-named-pipe-instead-of-commands-table.md) |
-| DB location | `%ProgramData%\DiskMon\diskmon.db` | Machine-wide; ACL: SYSTEM + Administrators full control, `BUILTIN\Users` **read-only** |
+| IPC | **Named pipe** `diskdrift` (JSON lines: `ping`, `probe_now`); the Tray only reads the DB | Users must not be able to rewrite history. [ADR 0002](docs/adr/0002-named-pipe-instead-of-commands-table.md) |
+| DB location | `%ProgramData%\diskdrift\diskdrift.db` | Machine-wide; ACL: SYSTEM + Administrators full control, `BUILTIN\Users` **read-only** |
 | Data access | `Microsoft.Data.Sqlite` + `Dapper` | Lightweight, no EF |
 | Charts | `ScottPlot.WinForms` | Fast, simple, good with time series |
-| Logging | `Serilog` rolling file in `%ProgramData%\DiskMon\logs`, 7-file / 10 MB cap | **Don't become the log-growth problem ourselves** |
+| Logging | `Serilog` rolling file in `%ProgramData%\diskdrift\logs`, 7-file / 10 MB cap | **Don't become the log-growth problem ourselves** |
 | Config | `appsettings.json` next to the Collector exe | Volumes, intervals, thresholds, Probes, retention, tray colours |
 
 ---
@@ -52,23 +52,23 @@ Vocabulary follows [`GLOSSARY.md`](GLOSSARY.md); the reasons behind non-obvious 
 ## 3. Repo layout
 
 ```
-DiskMon.sln
+DiskDrift.sln
 GLOSSARY.md
 docs/adr/
 src/
-  DiskMon.Core/              # class lib: models, DB, migrations, config, native interop, pure logic
+  DiskDrift.Core/              # class lib: models, DB, migrations, config, native interop, pure logic
     Data/                    # Db.cs, Migrations/*.sql, repositories
     Native/                  # Kernel32.cs (GetProcessIoCounters, QueryFullProcessImageName, ...)
     Analysis/                # SwingDetector.cs, Attribution.cs (pure, unit-tested)
     Probes/                  # ProbeDefinition, ProbeExpander (per-user path expansion)
     Ipc/                     # pipe name, request/response contracts (shared by Collector and Tray)
-  DiskMon.Collector/         # Worker Service (Windows Service host)
+  DiskDrift.Collector/         # Worker Service (Windows Service host)
     Samplers/                # VolumeSampler, ProcessIoSampler, ProbeSampler, VssSampler
     Services/                # SwingService, PipeServer, RetentionService
     appsettings.json
-  DiskMon.Tray/              # WinForms app: NotifyIcon + DashboardForm
+  DiskDrift.Tray/              # WinForms app: NotifyIcon + DashboardForm
 tests/
-  DiskMon.Core.Tests/        # xUnit
+  DiskDrift.Core.Tests/        # xUnit
 scripts/
   install-service.ps1        # publish + sc create + start + HKLM Run entry for the Tray (requires admin)
   uninstall-service.ps1      # reverses all of the above
@@ -218,7 +218,7 @@ Per user ({user} = C:\Users\<name>):
 
 ### 5.4 SwingService (consumes Volume Samples)
 
-The detection logic lives in `DiskMon.Core/Analysis/SwingDetector.cs` as a **pure function**: input is an ordered list of samples plus the current state, output is a list of actions. This keeps it unit-testable.
+The detection logic lives in `DiskDrift.Core/Analysis/SwingDetector.cs` as a **pure function**: input is an ordered list of samples plus the current state, output is a list of actions. This keeps it unit-testable.
 
 **Threshold:** one global value from config, default 1 GB over 15 min, applied to every Volume.
 
@@ -247,12 +247,12 @@ The detection logic lives in `DiskMon.Core/Analysis/SwingDetector.cs` as a **pur
 
 ### 5.5 PipeServer
 
-- Named pipe `DiskMon`, ACL: SYSTEM full control, `INTERACTIVE` (or `Authenticated Users`) read/write. One JSON request line, one JSON response line, then close.
+- Named pipe `diskdrift`, ACL: SYSTEM full control, `INTERACTIVE` (or `Authenticated Users`) read/write. One JSON request line, one JSON response line, then close.
 - `{"cmd":"ping"}` → `{"ok":true,"version":"…","lastSampleTs":…}`.
 - `{"cmd":"probe_now"}` → runs ProbeSampler + VssSampler and responds `{"ok":true}` (or an error) **when the run finishes**. A second request while a run is in progress waits for the same run.
 - No other commands in the MVP; add new ones only when a feature needs them.
 
-### 5.6 Tray app (DiskMon.Tray)
+### 5.6 Tray app (DiskDrift.Tray)
 
 **DB access:** the Tray never writes. While the Collector runs it opens the DB `Mode=ReadOnly`. If that fails (the Collector is stopped, so the `-wal`/`-shm` files are gone), it falls back to opening the DB as **immutable** and shows the stale history under a "Collector not running" banner. *Verify the immutable fallback with Microsoft.Data.Sqlite in M2.*
 
@@ -288,7 +288,7 @@ Each milestone ends with its acceptance criteria passing. Stop and review betwee
 ### M0 — Scaffolding
 - Solution and the 4 projects; nullable enabled; warnings as errors in Core.
 - `Db` class: opens or creates the DB, enables WAL, applies embedded migrations, sets folder ACLs on first create (SYSTEM + Administrators full, Users read-only).
-- Config binding (`DiskMonOptions`).
+- Config binding (`DiskDriftOptions`).
 - Serilog with size caps.
 - GitHub Actions: `dotnet build` + `dotnet test` on `windows-latest`.
 
@@ -297,7 +297,7 @@ Each milestone ends with its acceptance criteria passing. Stop and review betwee
 ### M1 — Collector core
 - `VolumeSampler`, `ProcessIoSampler` (with `processes` table), `RetentionService`.
 - Host runs as a console app when started from a terminal and as a service under the service control manager (`UseWindowsService()`).
-- `scripts/install-service.ps1`: `dotnet publish -c Release -r win-x64 --self-contained`, then `sc.exe create DiskMon binPath=... start=auto obj=LocalSystem`, then start the service.
+- `scripts/install-service.ps1`: `dotnet publish -c Release -r win-x64 --self-contained`, then `sc.exe create diskdrift binPath=... start=auto obj=LocalSystem`, then start the service.
 
 **Accept:**
 - After 10 min of running, `volume_samples` has about 20 rows for C: (and for any opted-in Volume).
@@ -312,7 +312,7 @@ Each milestone ends with its acceptance criteria passing. Stop and review betwee
 
 **Accept:**
 - The tray shows correct free GB (cross-check with Explorer), and the chart renders 24h of data in under 500 ms.
-- A non-admin user cannot modify `diskmon.db`.
+- A non-admin user cannot modify `diskdrift.db`.
 - With the service stopped, the tray still shows history plus "Collector not running".
 
 ### M3 — Probes, VSS, Swings (**MVP complete**)
@@ -378,7 +378,7 @@ Each milestone ends with its acceptance criteria passing. Stop and review betwee
 - **Process I/O counters** include non-disk I/O. Label them as a ranking signal in the UI.
 - **WSL/Docker vhdx** files grow without ever shrinking. They show up as steady growth rather than Swings; the chart makes that visible. On the author's PC they were ~145 GB of the Probes' 179 GB; see [`docs/space-findings.md`](docs/space-findings.md) for how to reclaim it.
 - **Logical vs allocated size:** the MVP uses logical size. Compressed and sparse files (and the vhdx) may differ.
-- **Our own footprint:** cap logs and apply DB retention. DiskMon must not become a source of growth itself.
+- **Our own footprint:** cap logs and apply DB retention. diskdrift must not become a source of growth itself.
 - **SQLite concurrency:** WAL, one writer (the Collector), the Tray read-only (immutable fallback when the Collector is stopped), `busy_timeout=5000`.
 - **Privacy gap (fix before distributing):** per-user Probes cover every profile and the DB is readable by all users, so any user can see the folder sizes of other users.
 
@@ -388,4 +388,4 @@ Each milestone ends with its acceptance criteria passing. Stop and review betwee
 
 1. Create the repo (`git init`) and copy in `PLAN.md`, `CLAUDE.md`, `GLOSSARY.md`, `docs/` and `.claude/`.
 2. First prompt: *"Read PLAN.md, GLOSSARY.md and docs/adr/. Implement M0 only. Stop when its acceptance criteria pass and summarize what you built."*
-3. Run the Collector in an **elevated** terminal during development (`dotnet run --project src/DiskMon.Collector`), because VSS, WMI and all-process counters need admin.
+3. Run the Collector in an **elevated** terminal during development (`dotnet run --project src/DiskDrift.Collector`), because VSS, WMI and all-process counters need admin.

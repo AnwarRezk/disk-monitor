@@ -1,6 +1,6 @@
-# DiskMon
+# DiskDrift
 
-DiskMon explains why free space on a Windows machine moves: when it changed, what grew or shrank, and which processes were writing.
+DiskDrift explains why free space on a Windows machine moves: when it changed, what grew or shrank, and which processes were writing.
 
 ## Measurement
 
@@ -13,7 +13,7 @@ The total and free bytes of one Volume at one moment.
 _Avoid_: Reading, snapshot
 
 **Probe**:
-A watched location whose size DiskMon tracks over time: a folder, a file, a glob, or a Volume's VSS shadow storage.
+A watched location whose size DiskDrift tracks over time: a folder, a file, a glob, or a Volume's VSS shadow storage.
 _Avoid_: Watch, suspect, monitor
 
 **Probe Sample**:
@@ -37,7 +37,7 @@ A Swing in which used space decreases (free space rises).
 _Avoid_: Cleanup, free-up
 
 **Open / Closing / Closed**:
-The stages of a Swing. Open: free space is still moving. Closing: the move has settled and DiskMon is waiting for the after-side Probe Samples. Closed: Attribution is final.
+The stages of a Swing. Open: free space is still moving. Closing: the move has settled and DiskDrift is waiting for the after-side Probe Samples. Closed: Attribution is final.
 
 **Downtime**:
 A stretch with no Volume Samples longer than two sample intervals, such as a reboot, sleep, or the Collector being stopped. A Swing measured across Downtime is flagged as such.

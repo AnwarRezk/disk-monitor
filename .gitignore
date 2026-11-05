@@ -481,7 +481,7 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-# --- DiskMon ---
+# --- DiskDrift ---
 # Build output
 bin/
 obj/
@@ -499,11 +499,12 @@ TestResults/
 *.suo
 *.DotSettings.user
 
-# Local runtime data (the real DB lives in %ProgramData%\DiskMon)
+# Local runtime data (the real DB lives in %ProgramData%\DiskDrift)
 *.db
 *.db-wal
 *.db-shm
 logs/
+stop
 
 # Agent scratch
 .scratch/
@@ -512,3 +513,6 @@ logs/
 # OS
 Thumbs.db
 .DS_Store
+
+#Screenshots
+shots-pro/

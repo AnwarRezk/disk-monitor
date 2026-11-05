@@ -1,6 +1,6 @@
 # Tray reaches the Collector over a named pipe, and the DB is read-only for users
 
-The original plan used a `commands` table in the shared SQLite DB as the only UI-to-Collector channel, which meant granting `BUILTIN\Users` write access to the DB folder. Any user could then rewrite or delete the recorded history. DiskMon is personal for now but is meant to become a distributable tool, so we lock the data folder to SYSTEM and Administrators for writing, give Users read-only access, and carry Tray requests ("probe now", "are you alive") over a named pipe whose ACL admits interactive users.
+The original plan used a `commands` table in the shared SQLite DB as the only UI-to-Collector channel, which meant granting `BUILTIN\Users` write access to the DB folder. Any user could then rewrite or delete the recorded history. diskdrift is personal for now but is meant to become a distributable tool, so we lock the data folder to SYSTEM and Administrators for writing, give Users read-only access, and carry Tray requests ("probe now", "are you alive") over a named pipe whose ACL admits interactive users.
 
 ## Considered Options
 

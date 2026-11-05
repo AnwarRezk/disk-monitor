@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Builds DiskMon-Setup-<version>.exe in artifacts\installer: publishes the Collector and the Tray
-    (Release, win-x64, self-contained), then compiles installer\DiskMon.iss with Inno Setup 6.
+    Builds DiskDrift-Setup-<version>.exe in artifacts\installer: publishes the Collector and the Tray
+    (Release, win-x64, self-contained), then compiles installer\DiskDrift.iss with Inno Setup 6.
 
 .EXAMPLE
     installer/build.ps1 -Version 0.2.0
@@ -35,8 +35,8 @@ if (-not $Iscc) {
     if (-not $Iscc) { throw 'Inno Setup 6 not found. Install it (winget install JRSoftware.InnoSetup) or pass -Iscc.' }
 }
 
-foreach ($app in @(@{ Name = 'collector'; Project = 'src\DiskMon.Collector\DiskMon.Collector.csproj' },
-                   @{ Name = 'tray';      Project = 'src\DiskMon.Tray\DiskMon.Tray.csproj' })) {
+foreach ($app in @(@{ Name = 'collector'; Project = 'src\DiskDrift.Collector\DiskDrift.Collector.csproj' },
+                   @{ Name = 'tray';      Project = 'src\DiskDrift.Tray\DiskDrift.Tray.csproj' })) {
     $out = Join-Path $publish $app.Name
     Write-Host "Publishing $($app.Name) $Version..."
     if (Test-Path $out) { Remove-Item $out -Recurse -Force }
@@ -47,7 +47,7 @@ foreach ($app in @(@{ Name = 'collector'; Project = 'src\DiskMon.Collector\DiskM
 }
 
 Write-Host "Compiling the setup with $Iscc..."
-Invoke-Native 'ISCC' { & $Iscc "/DAppVersion=$Version" "/DPublishDir=$publish" (Join-Path $PSScriptRoot 'DiskMon.iss') }
+Invoke-Native 'ISCC' { & $Iscc "/DAppVersion=$Version" "/DPublishDir=$publish" (Join-Path $PSScriptRoot 'DiskDrift.iss') }
 
-$setup = Join-Path $repoRoot "artifacts\installer\DiskMon-Setup-$Version.exe"
+$setup = Join-Path $repoRoot "artifacts\installer\DiskDrift-Setup-$Version.exe"
 Write-Host "Built $setup"

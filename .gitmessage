@@ -1,0 +1,13 @@
+# <Summary line in imperative mood> (DIS-xx) (#xx)
+# Examples:
+#   Rename application from DiskMon to DiskDrift (DIS-15) (#13)
+#   Detect Swings and record them for the dashboard (DIS-13) (#10)
+#
+# Remember:
+# - Limit the subject line to ~72 characters
+# - Capitalize the subject line
+# - Do not end the subject line with a period
+# - Use the imperative mood in the subject line (e.g., "Add", not "Added")
+# - Explain the *what* and *why* of the change in the body below
+# ----------------------------------------------------------------------
+

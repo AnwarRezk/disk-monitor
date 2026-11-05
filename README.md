@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo-256.png" width="112" alt="DiskMon logo">
+  <img src="assets/logo-256.png" width="112" alt="DiskDrift logo">
 </p>
 
-<h1 align="center">DiskMon</h1>
+<h1 align="center">DiskDrift</h1>
 
 <p align="center">
   <b>Find out where your free space went.</b><br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard.png" alt="The DiskMon dashboard: free-space chart, figures and the Where space is tab" width="900">
+  <img src="docs/images/dashboard.png" alt="The DiskDrift dashboard: free-space chart, figures and the Where space is tab" width="900">
 </p>
 
 ## Why
@@ -19,7 +19,7 @@ Windows drives tend to fill up quietly and then, just as suddenly, free 5 to 10 
 up, shadow copies come and go, WSL and Docker disks grow, browsers and package managers cache everything. A one-off
 treemap shows what is big *now*; it can't tell you what changed last night.
 
-DiskMon runs in the background and keeps a timeline. When free space moves by 1 GB or more within 15 minutes it records
+DiskDrift runs in the background and keeps a timeline. When free space moves by 1 GB or more within 15 minutes it records
 a **Swing** and explains it: which known locations changed across it, which programs wrote the most while it happened,
 and how much is still **Unaccounted**.
 
@@ -39,7 +39,7 @@ and how much is still **Unaccounted**.
 - **Open location**: jump from a Probe or Swing item straight to the folder in Explorer.
 - **Small footprint**: capped logs (7 × 10 MB), automatic retention, and no growth problem of its own.
 
-DiskMon only watches and explains. It never deletes anything.
+DiskDrift only watches and explains. It never deletes anything.
 
 <p align="center">
   <img src="docs/images/swings.png" alt="The Swings tab: each Swing with what changed, the Top Writers and the Unaccounted remainder" width="900">
@@ -47,12 +47,12 @@ DiskMon only watches and explains. It never deletes anything.
 
 ## How it works
 
-DiskMon is two processes sharing one SQLite database at `%ProgramData%\DiskMon\diskmon.db`:
+DiskDrift is two processes sharing one SQLite database at `%ProgramData%\DiskDrift\diskdrift.db`:
 
 | Part | Runs as | Does |
 |---|---|---|
-| **Collector** (`DiskMon.Collector`) | Windows Service, LocalSystem | The only writer. Samples free space, process I/O, Probes and VSS; detects and attributes Swings; serves the `DiskMon` named pipe. |
-| **Tray** (`DiskMon.Tray`) | Your user, unprivileged | Reads the database read-only; shows the tray icon and dashboard; asks the Collector for "Probe now" over the pipe. |
+| **Collector** (`DiskDrift.Collector`) | Windows Service, LocalSystem | The only writer. Samples free space, process I/O, Probes and VSS; detects and attributes Swings; serves the `DiskDrift` named pipe. |
+| **Tray** (`DiskDrift.Tray`) | Your user, unprivileged | Reads the database read-only; shows the tray icon and dashboard; asks the Collector for "Probe now" over the pipe. |
 
 The data folder is writable only by SYSTEM and Administrators, so a normal user can read the history but not rewrite
 it. Design notes live in [PLAN.md](PLAN.md), the vocabulary in [GLOSSARY.md](GLOSSARY.md) and the decisions in
@@ -62,26 +62,26 @@ it. Design notes live in [PLAN.md](PLAN.md), the vocabulary in [GLOSSARY.md](GLO
 
 Requirements: Windows 10 1809 or later (x64). Nothing else: the setup carries its own .NET runtime.
 
-1. Download `DiskMon-Setup-<version>.exe` from the [latest release](https://github.com/AnwarRezk/disk-monitor/releases/latest).
+1. Download `DiskDrift-Setup-<version>.exe` from the [latest release](https://github.com/AnwarRezk/disk-monitor/releases/latest).
 2. Run it and accept the administrator prompt. The setup isn't code-signed yet, so Windows SmartScreen may say
    "Windows protected your PC": choose **More info** → **Run anyway**.
-3. Leave **Open the DiskMon dashboard** ticked on the last page.
+3. Leave **Open the DiskDrift dashboard** ticked on the last page.
 
 The setup:
 
-1. installs the Collector to `%ProgramFiles%\DiskMon\Collector` and registers the `DiskMon` service (automatic start,
-   restarts after a crash), then starts it; it creates `%ProgramData%\DiskMon` with its locked-down ACL on first run;
-2. installs the Tray to `%ProgramFiles%\DiskMon\Tray`, starts it now and at every user's logon;
-3. adds a **DiskMon** shortcut with the logo to the Start menu (and the desktop, unless you untick it). It opens the
+1. installs the Collector to `%ProgramFiles%\DiskDrift\Collector` and registers the `DiskDrift` service (automatic start,
+   restarts after a crash), then starts it; it creates `%ProgramData%\DiskDrift` with its locked-down ACL on first run;
+2. installs the Tray to `%ProgramFiles%\DiskDrift\Tray`, starts it now and at every user's logon;
+3. adds a **DiskDrift** shortcut with the logo to the Start menu (and the desktop, unless you untick it). It opens the
    dashboard, starting the tray icon first if it isn't running.
 
 Run a newer setup to upgrade in place; your `appsettings.json` is kept. It also takes over an install made with the
 old `install-service.ps1` script.
 
-To remove DiskMon, use **Settings → Apps → Installed apps → DiskMon → Uninstall**. It asks whether to delete the
-history and logs in `%ProgramData%\DiskMon` (the default keeps them, so a reinstall continues the same timeline).
+To remove DiskDrift, use **Settings → Apps → Installed apps → DiskDrift → Uninstall**. It asks whether to delete the
+history and logs in `%ProgramData%\DiskDrift` (the default keeps them, so a reinstall continues the same timeline).
 
-Check the service with `sc.exe query DiskMon` (in PowerShell, write `sc.exe`: plain `sc` is `Set-Content`).
+Check the service with `sc.exe query DiskDrift` (in PowerShell, write `sc.exe`: plain `sc` is `Set-Content`).
 
 ### Install from source
 
@@ -96,37 +96,37 @@ cd disk-monitor
 
 To build the setup yourself, install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
 (`winget install JRSoftware.InnoSetup`) and run `.\installer\build.ps1 -Version 0.1.0`; it writes
-`artifacts\installer\DiskMon-Setup-0.1.0.exe`.
+`artifacts\installer\DiskDrift-Setup-0.1.0.exe`.
 
 ## Use
 
 - **Hover** the tray icon for free space and the change over the last 24 hours.
-- **Double-click** it, right-click → *Open dashboard*, or start **DiskMon** from the Start menu or desktop.
+- **Double-click** it, right-click → *Open dashboard*, or start **DiskDrift** from the Start menu or desktop.
 - In the dashboard, drag across the chart to zoom (Esc resets), switch ranges at the top of the chart, and use the
   tabs: **Where space is** (Probe sizes), **Swings** (pick one for its detail) and **Top Writers**.
 - Right-click the tray icon for *Probe now* and *Open data folder*.
 
 ## Configure
 
-Settings live in `%ProgramFiles%\DiskMon\Collector\appsettings.json`: volumes, sampling intervals, the Swing threshold,
+Settings live in `%ProgramFiles%\DiskDrift\Collector\appsettings.json`: volumes, sampling intervals, the Swing threshold,
 retention, the tray colour thresholds and the Probe list. Per-user Probes use a `{user}` template that expands to every
 profile under `C:\Users`. Restart the service after editing:
 
 ```powershell
-sc.exe stop DiskMon; sc.exe start DiskMon
+sc.exe stop DiskDrift; sc.exe start DiskDrift
 ```
 
 ## Develop
 
 ```powershell
-dotnet build                                   # whole solution; also builds on Linux/macOS
-dotnet test                                    # xUnit tests
-dotnet run --project src/DiskMon.Collector     # Collector as a console app (elevated terminal)
-dotnet run --project src/DiskMon.Tray          # Tray (normal terminal)
+dotnet build                                     # whole solution; also builds on Linux/macOS
+dotnet test                                      # xUnit tests
+dotnet run --project src/DiskDrift.Collector     # Collector as a console app (elevated terminal)
+dotnet run --project src/DiskDrift.Tray          # Tray (normal terminal)
 .\scripts\simulate-growth.ps1 -SizeGB 2 -Location temp -Cleanup   # make a test Swing (admin)
 ```
 
-`DiskMon.Tray.exe --screenshot <folder>` saves the dashboard at every range and size, which is handy when reviewing UI
+`DiskDrift.Tray.exe --screenshot <folder>` saves the dashboard at every range and size, which is handy when reviewing UI
 changes. Contributor notes are in [CLAUDE.md](CLAUDE.md).
 
 ## Privacy
