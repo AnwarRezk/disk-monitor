@@ -79,6 +79,8 @@ internal sealed class DashboardForm : Form
     private readonly Panel _swingsPage = new() { Dock = DockStyle.Fill, BackColor = Theme.Card };
     private readonly Panel _writersPage = new() { Dock = DockStyle.Fill, BackColor = Theme.Card };
     private readonly RichLine _spaceIntro = new() { Dock = DockStyle.Fill };
+    private readonly VirtualDiskBanner _vhdxBanner = new() { Dock = DockStyle.Fill };
+    private readonly Panel _vhdxHolder = new() { Dock = DockStyle.Top, Height = 72, Padding = new Padding(20, 4, 20, 4), BackColor = Theme.Card, Visible = false };
     private readonly ProbeTiles _tiles = new() { Dock = DockStyle.Fill };
     private readonly Panel _tilesHolder = new() { Dock = DockStyle.Top, Height = 120, Padding = new Padding(20, 2, 20, 4), BackColor = Theme.Card };
     private readonly DarkListView _probeList = new(rowHeight: ProbeRowHeight) { Dock = DockStyle.Fill };
@@ -98,6 +100,7 @@ internal sealed class DashboardForm : Form
     private TableLayoutPanel? _root;
     private readonly List<Panel> _introBars = [];
     private bool _wasNarrow;
+    private bool _hasVhdxCallout;
     private string _layoutNote = "";
     private int _probeBarMax = 170;
     private Color _warningColor = Theme.Amber;
@@ -415,9 +418,15 @@ internal sealed class DashboardForm : Form
         var tabs = available - height;
         // The strips and Probe rows are fixed pixel heights (row height comes from the font, already in device pixels).
         var listRoom = tabs - (45 + (narrow ? 0 : 38) + 32);
+        var vhdxHeight = _vhdxBanner.WantedHeight + 8;
+        _vhdxHolder.Height = vhdxHeight;
         var full = _tiles.Wanted(compact: false) + LogicalToDeviceUnits(6);
         var compact = _tiles.Wanted(compact: true) + LogicalToDeviceUnits(6);
         var row = ProbeRowHeight;
+        var showVhdx = _hasVhdxCallout && listRoom - vhdxHeight >= row + 12;
+        _vhdxHolder.Visible = showVhdx;
+        if (showVhdx)
+            listRoom -= vhdxHeight;
         if (listRoom - full >= row + 20)
         {
             _tiles.Compact = false;
@@ -669,9 +678,12 @@ internal sealed class DashboardForm : Form
         };
         _tiles.Cursor = Cursors.Default;
         _tilesHolder.Controls.Add(_tiles);
+        _vhdxBanner.CommandClicked += cmd => CopyText(cmd);
+        _vhdxHolder.Controls.Add(_vhdxBanner);
 
         _spacePage.Controls.Add(_probeList);
         _spacePage.Controls.Add(_tilesHolder);
+        _spacePage.Controls.Add(_vhdxHolder);
         _spacePage.Controls.Add(IntroBar(_spaceIntro));
     }
 
@@ -1402,6 +1414,13 @@ internal sealed class DashboardForm : Form
         _probeList.UpdateEmpty();
         _tiles.SetItems(shown.Select(p => (p, p.Name)));
         _tiles.SelectedId = SelectedProbe()?.Id;
+        var vhdxCallout = ReclaimHints.VirtualDiskSummary(s.Probes);
+        _vhdxBanner.Set(vhdxCallout, ClientSize.Width < NarrowWidth);
+        if ((vhdxCallout is not null) != _hasVhdxCallout)
+        {
+            _hasVhdxCallout = vhdxCallout is not null;
+            ApplyProportions();
+        }
         _probeInfo.Text = s.LatestProbeTs is { } ts ? $"Probes {Ago(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts)}" : "no run yet";
         _tips.SetToolTip(_probeNow, _probeInfo.Text);
     }
@@ -1691,7 +1710,11 @@ internal sealed class DashboardForm : Form
         _itemList.BeginUpdate();
         _itemList.Items.Clear();
         foreach (var i in probes)
-            AddDetailRow(i.Source == "usn" ? "File" : "Probe", i.Label, i.Path, new DetailRow("probe", i.DeltaBytes, i.Path, Math.Abs(i.DeltaBytes) / (double)largest), i.Path);
+        {
+            var hint = ReclaimHints.For(i.Label);
+            var tip = (i.Path ?? i.Label) + (hint is null ? "" : $"\n{hint.Command}{(hint.Command is null ? "" : " — ")}{hint.Note}");
+            AddDetailRow(i.Source == "usn" ? "File" : "Probe", i.Label, i.Path, new DetailRow("probe", i.DeltaBytes, i.Path, Math.Abs(i.DeltaBytes) / (double)largest), tip);
+        }
         if (swing.Stage == "closed")
         {
             var note = swing.ProbeWindowStart is null
