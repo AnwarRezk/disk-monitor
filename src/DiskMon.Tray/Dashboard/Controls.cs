@@ -19,7 +19,7 @@ internal sealed class CardPanel : Panel
         base.OnPaint(e);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-        using var path = Rounded(rect, 10);
+        using var path = Rounded(rect, Radius);
         using var ground = new Region(ClientRectangle);
         ground.Exclude(path);
         using var groundBrush = new SolidBrush(Parent?.BackColor ?? Theme.Ground);
@@ -27,6 +27,10 @@ internal sealed class CardPanel : Panel
         using var pen = new Pen(Theme.Hairline);
         e.Graphics.DrawPath(pen, path);
     }
+
+    /// <summary>Corner radius in pixels.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int Radius { get; set; } = 12;
 
     internal static GraphicsPath Rounded(Rectangle r, int radius)
     {
@@ -43,17 +47,20 @@ internal sealed class CardPanel : Panel
 
 internal enum ToggleLook
 {
-    /// <summary>A Volume chip in the header: outlined, filled violet when selected.</summary>
+    /// <summary>A Volume tab in the header band: outlined violet and filled when selected, plain text otherwise.</summary>
     Chip,
 
-    /// <summary>A range button inside a segmented control: no outline, filled violet when selected.</summary>
+    /// <summary>A range pill: rounded, outlined, filled violet when selected.</summary>
     Segment,
 
-    /// <summary>An uppercase tab with a pink underline when selected.</summary>
+    /// <summary>A tab with a pink underline when selected.</summary>
     Tab,
 
-    /// <summary>A command button: filled violet with a lighter edge (Probe now).</summary>
+    /// <summary>A secondary command: outlined violet (Open location).</summary>
     Action,
+
+    /// <summary>The primary command: filled violet, white text (Probe now).</summary>
+    Primary,
 }
 
 /// <summary>A real <see cref="Button"/> (focusable, keyboard and screen-reader friendly) painted in the dashboard's look.</summary>
@@ -70,8 +77,13 @@ internal sealed class ToggleButton : Button
         Cursor = Cursors.Hand;
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderSize = 0;
-        Margin = look == ToggleLook.Segment ? Padding.Empty : new Padding(0, 0, look == ToggleLook.Tab ? 28 : 6, 0);
-        Font = look == ToggleLook.Tab ? Theme.Caption : Theme.Body;
+        Margin = look switch
+        {
+            ToggleLook.Segment => new Padding(0, 0, 4, 0),
+            ToggleLook.Tab => new Padding(0, 0, 8, 0),
+            _ => new Padding(0, 0, 6, 0),
+        };
+        Font = look switch { ToggleLook.Tab => Theme.Tab, ToggleLook.Primary => Theme.BodyStrong, _ => Theme.Body };
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
         Size = Measure();
     }
@@ -101,13 +113,13 @@ internal sealed class ToggleButton : Button
 
     private Size Measure()
     {
-        var text = TextRenderer.MeasureText(Look == ToggleLook.Tab ? Text.ToUpperInvariant() : Text, Font);
+        var text = TextRenderer.MeasureText(Text, Look == ToggleLook.Segment ? Theme.BodyStrong : Font);
         return Look switch
         {
-            ToggleLook.Tab => new Size(text.Width + 4, 44),
-            ToggleLook.Segment => new Size(text.Width + 24, 32),
-            ToggleLook.Action => new Size(text.Width + 24, 30),
-            _ => new Size(text.Width + 28, 32),
+            ToggleLook.Tab => new Size(text.Width + 24, 42),
+            ToggleLook.Segment => new Size(Math.Max(46, text.Width + 22), 32),
+            ToggleLook.Action or ToggleLook.Primary => new Size(text.Width + 30, 34),
+            _ => new Size(text.Width + 24, 34),
         };
     }
 
@@ -127,27 +139,41 @@ internal sealed class ToggleButton : Button
         switch (Look)
         {
             case ToggleLook.Chip:
-                using (var path = CardPanel.Rounded(rect, 6))
+                if (_selected || _hover)
                 {
-                    using var fill = new SolidBrush(_selected ? Theme.Selected : _hover ? Theme.Hover : back);
+                    using var path = CardPanel.Rounded(rect, 8);
+                    using var fill = new SolidBrush(_selected ? Theme.Hover : Theme.RowHover);
                     g.FillPath(fill, path);
                     using var pen = new Pen(_selected ? Theme.SelectedEdge : Theme.Hairline);
                     g.DrawPath(pen, path);
                 }
                 break;
             case ToggleLook.Segment:
-                using (var fill = new SolidBrush(_selected ? Theme.Selected : _hover ? Theme.Hover : back))
-                    g.FillRectangle(fill, ClientRectangle);
-                break;
-            case ToggleLook.Action:
-                using (var path = CardPanel.Rounded(rect, 6))
+                using (var path = CardPanel.Rounded(rect, rect.Height / 2))
                 {
-                    using var fill = new SolidBrush(!Enabled ? Theme.Hover : _hover ? Theme.SelectedEdge : Theme.Selected);
+                    using var fill = new SolidBrush(_selected ? Theme.Selected : _hover ? Theme.Hover : back);
                     g.FillPath(fill, path);
-                    using var pen = new Pen(Theme.SelectedEdge);
+                    using var pen = new Pen(_selected ? Theme.SelectedEdge : Theme.StrongEdge);
                     g.DrawPath(pen, path);
                 }
-                fore = Enabled ? Theme.Text : Theme.Muted;
+                break;
+            case ToggleLook.Action:
+                using (var path = CardPanel.Rounded(rect, 8))
+                {
+                    using var fill = new SolidBrush(!Enabled ? back : _hover ? Theme.Hover : back);
+                    g.FillPath(fill, path);
+                    using var pen = new Pen(Enabled ? Theme.SelectedEdge : Theme.Hairline);
+                    g.DrawPath(pen, path);
+                }
+                fore = Enabled ? Theme.Text : Theme.Faint;
+                break;
+            case ToggleLook.Primary:
+                using (var path = CardPanel.Rounded(rect, 8))
+                {
+                    using var fill = new SolidBrush(!Enabled ? Theme.Hover : _hover ? Theme.AccentHover : Theme.Accent);
+                    g.FillPath(fill, path);
+                }
+                fore = Enabled ? Color.White : Theme.Muted;
                 break;
             case ToggleLook.Tab:
                 if (_selected)
@@ -162,9 +188,8 @@ internal sealed class ToggleButton : Button
                 break;
         }
 
-        var label = Look == ToggleLook.Tab ? Text.ToUpperInvariant() : Text;
         var font = _selected && Look == ToggleLook.Segment ? Theme.BodyStrong : Font;
-        TextRenderer.DrawText(g, label, font, ClientRectangle, fore,
+        TextRenderer.DrawText(g, Text, font, ClientRectangle, fore,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
 
         // Tabs show focus as a faint underline: a dotted box around a just-clicked tab looked like a glitch.
@@ -175,8 +200,8 @@ internal sealed class ToggleButton : Button
         }
         else if (Focused && ShowFocusCues && Look != ToggleLook.Tab)
         {
-            using var focus = new Pen(Theme.SelectedEdge) { DashStyle = DashStyle.Dot };
-            g.DrawRectangle(focus, 2, 2, Width - 5, Height - 5);
+            using var focus = new Pen(Look == ToggleLook.Primary ? Color.White : Theme.SelectedEdge) { DashStyle = DashStyle.Dot };
+            g.DrawRectangle(focus, 3, 3, Width - 7, Height - 7);
         }
     }
 }
@@ -520,6 +545,7 @@ internal sealed class TipBox : Control
 {
     private string _top = "";
     private string _main = "";
+    private string _sub = "";
 
     public TipBox()
     {
@@ -527,12 +553,15 @@ internal sealed class TipBox : Control
         Visible = false;
     }
 
-    public void Set(string top, string main)
+    /// <summary>Sets the time, the value and an optional third line (the Swing under the cursor).</summary>
+    public void Set(string top, string main, string sub = "")
     {
-        (_top, _main) = (top, main);
+        (_top, _main, _sub) = (top, main, sub);
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
         var w = Math.Max(TextRenderer.MeasureText(top, Theme.MonoSmall, Size.Empty, flags).Width, TextRenderer.MeasureText(main, Theme.BodyStrong, Size.Empty, flags).Width);
-        Size = new Size(w + 20, 6 + Theme.MonoSmall.Height + 2 + Theme.BodyStrong.Height + 6);
+        if (sub.Length > 0)
+            w = Math.Max(w, TextRenderer.MeasureText(sub, Theme.Small, Size.Empty, flags).Width);
+        Size = new Size(w + 24, 8 + Theme.MonoSmall.Height + 2 + Theme.BodyStrong.Height + (sub.Length > 0 ? 2 + Theme.Small.Height : 0) + 8);
         Invalidate();
     }
 
@@ -553,15 +582,35 @@ internal sealed class TipBox : Control
         var g = e.Graphics;
         g.Clear(Theme.PlotGround);
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        using (var path = CardPanel.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), 6))
+        using (var path = CardPanel.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), 8))
         {
-            using var fill = new SolidBrush(Theme.Grid);
+            using var fill = new SolidBrush(Theme.Raised);
             g.FillPath(fill, path);
-            using var pen = new Pen(Theme.SelectedEdge);
+            using var pen = new Pen(Theme.StrongEdge);
             g.DrawPath(pen, path);
         }
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
-        TextRenderer.DrawText(g, _top, Theme.MonoSmall, new Rectangle(10, 6, Width - 20, Theme.MonoSmall.Height + 2), Theme.Muted, flags);
-        TextRenderer.DrawText(g, _main, Theme.BodyStrong, new Rectangle(10, 8 + Theme.MonoSmall.Height, Width - 20, Theme.BodyStrong.Height), Theme.Text, flags);
+        var y = 8;
+        TextRenderer.DrawText(g, _top, Theme.MonoSmall, new Rectangle(12, y, Width - 24, Theme.MonoSmall.Height + 2), Theme.Muted, flags);
+        y += Theme.MonoSmall.Height + 2;
+        TextRenderer.DrawText(g, _main, Theme.BodyStrong, new Rectangle(12, y, Width - 24, Theme.BodyStrong.Height), Theme.Text, flags);
+        y += Theme.BodyStrong.Height + 2;
+        if (_sub.Length > 0)
+            TextRenderer.DrawText(g, _sub, Theme.Small, new Rectangle(12, y, Width - 24, Theme.Small.Height), Theme.Muted, flags);
     }
+}
+
+/// <summary>Context-menu colours in the dashboard's look (the Probe list's right-click menu).</summary>
+internal sealed class MenuColors : ProfessionalColorTable
+{
+    public override Color ToolStripDropDownBackground => Theme.Raised;
+    public override Color MenuBorder => Theme.StrongEdge;
+    public override Color MenuItemBorder => Theme.Hover;
+    public override Color MenuItemSelected => Theme.Hover;
+    public override Color MenuItemSelectedGradientBegin => Theme.Hover;
+    public override Color MenuItemSelectedGradientEnd => Theme.Hover;
+    public override Color ImageMarginGradientBegin => Theme.Raised;
+    public override Color ImageMarginGradientMiddle => Theme.Raised;
+    public override Color ImageMarginGradientEnd => Theme.Raised;
+    public override Color SeparatorDark => Theme.Hairline;
 }
