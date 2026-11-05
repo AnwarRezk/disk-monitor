@@ -387,7 +387,7 @@ internal sealed class DashboardForm : Form
         foreach (var intro in _introBars)
             intro.Visible = !narrow;
         // Table column widths are device pixels here (the table isn't rescaled after a DPI-aware start): sized for 125%.
-        _summary.ColumnStyles[0].Width = narrow ? 320 : 420;
+        _summary.ColumnStyles[0].Width = narrow ? 300 : 420;
         if (narrow != _wasNarrow && _last is not null)
         {
             _wasNarrow = narrow;

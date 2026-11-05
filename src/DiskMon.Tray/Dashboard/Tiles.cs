@@ -131,7 +131,8 @@ internal sealed class StatTile : Control
         TextRenderer.DrawText(g, _caption, Theme.Small, new Rectangle(16, y, width, Theme.Small.Height), Theme.Muted, flags);
         y += Theme.Small.Height + 6;
         // A narrow tile steps the figure down a size before it would have to cut it short.
-        var font = TextRenderer.MeasureText(_value, Theme.TileValue, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width <= width + 1 ? Theme.TileValue : Theme.ForecastValue;
+        bool Fits(Font f) => TextRenderer.MeasureText(_value, f, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width <= width + 1;
+        var font = Fits(Theme.TileValue) ? Theme.TileValue : Fits(Theme.ForecastValue) ? Theme.ForecastValue : Theme.Section;
         TextRenderer.DrawText(g, _value, font, new Rectangle(15, y + Theme.TileValue.Height - font.Height, width + 1, font.Height), _valueColor, flags);
         y += Theme.TileValue.Height + 2;
         TextRenderer.DrawText(g, _detail, Theme.Small, new Rectangle(16, y, width, Theme.Small.Height + 2), Theme.Faint, flags);
