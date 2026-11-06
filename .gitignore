@@ -504,15 +504,13 @@ TestResults/
 *.db-wal
 *.db-shm
 logs/
-stop
 
-# Agent scratch
+# Agent scratch & review captures
 .scratch/
 .claude/settings.local.json
+screenshots/
+shots-pro/
 
 # OS
 Thumbs.db
 .DS_Store
-
-#Screenshots
-shots-pro/

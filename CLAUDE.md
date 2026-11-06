@@ -17,11 +17,11 @@ dotnet test --filter "FullyQualifiedName~SwingDetector"   # run a subset / singl
 dotnet run --project src/DiskDrift.Collector                # run collector as a console app (use an ELEVATED terminal)
 dotnet run --project src/DiskDrift.Tray                     # tray UI (normal, non-elevated)
 scripts/install-service.ps1                               # publish self-contained win-x64 + sc.exe create/start (admin)
-installer/build.ps1 -Version 0.1.0                        # DiskMon-Setup-0.1.0.exe via Inno Setup 6 (needs ISCC)
+installer/build.ps1 -Version 0.1.0                        # DiskDrift-Setup-0.1.0.exe via Inno Setup 6 (needs ISCC)
 scripts/simulate-growth.ps1 -SizeGB 2 -Location temp|unprobed -Cleanup   # produce test Swings (admin)
 ```
 
-Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.github/workflows/ci.yml`) runs the same on `windows-latest`, then builds the setup (artifact `DiskMon-Setup-*`). Releasing: run the CI workflow by hand (`workflow_dispatch`) with a `version`, or push a `v*` tag; either tags the commit and publishes a GitHub Release with the setup attached. Windows-only tests (ACLs) call `Assert.SkipUnless(OperatingSystem.IsWindows(), …)` so the suite also runs elsewhere. Tests use xUnit v3.
+Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.github/workflows/ci.yml`) runs the same on `windows-latest`, then builds the setup (artifact `DiskDrift-Setup-*`). Releasing: run the CI workflow by hand (`workflow_dispatch`) with a `version`, or push a `v*` tag; either tags the commit and publishes a GitHub Release with the setup attached. Windows-only tests (ACLs) call `Assert.SkipUnless(OperatingSystem.IsWindows(), …)` so the suite also runs elsewhere. Tests use xUnit v3.
 
 ## Conventions
 
@@ -48,7 +48,7 @@ Swing attribution: probe deltas use the nearest sample ≤ `ts_start` and ≥ `t
 
 ## Installer
 
-`installer/DiskMon.iss` (Inno Setup 6) mirrors `scripts/install-service.ps1`: same folders, service, HKLM Run value `DiskMonTray` and kept `appsettings.json`. Its service steps live in `installer/service.ps1` (Stop before files are copied, Install after, Remove on uninstall); keep the two install paths in step. Never change the `.iss` `AppId`. The Start menu/desktop shortcut runs `DiskMon.Tray.exe --dashboard`; a second Tray launch signals the running one (named event `Local\DiskMon.Tray.OpenDashboard`) instead of showing a second icon.
+`installer/DiskDrift.iss` (Inno Setup 6) mirrors `scripts/install-service.ps1`: same folders, service, HKLM Run value `DiskDriftTray` and kept `appsettings.json`. Its service steps live in `installer/service.ps1` (Stop before files are copied, Install after, Remove on uninstall); keep the two install paths in step. Never change the `.iss` `AppId`. The Start menu/desktop shortcut runs `DiskDrift.Tray.exe --dashboard`; a second Tray launch signals the running one (named event `Local\DiskDrift.Tray.OpenDashboard`) instead of showing a second icon.
 
 ## Gotchas
 
