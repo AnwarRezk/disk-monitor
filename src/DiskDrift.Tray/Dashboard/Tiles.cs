@@ -9,10 +9,14 @@ namespace DiskDrift.Tray.Dashboard;
 internal static class Tint
 {
     /// <summary><paramref name="color"/> laid over <paramref name="ground"/> at <paramref name="alpha"/> (0..1), as an opaque colour.</summary>
-    public static Color Over(Color color, Color ground, double alpha) => Color.FromArgb(
-        (int)Math.Round(ground.R + ((color.R - ground.R) * alpha)),
-        (int)Math.Round(ground.G + ((color.G - ground.G) * alpha)),
-        (int)Math.Round(ground.B + ((color.B - ground.B) * alpha)));
+    public static Color Over(Color color, Color ground, double alpha)
+    {
+        var a = Math.Clamp(alpha, 0.0, 1.0);
+        return Color.FromArgb(
+            (int)Math.Round(ground.R + ((color.R - ground.R) * a)),
+            (int)Math.Round(ground.G + ((color.G - ground.G) * a)),
+            (int)Math.Round(ground.B + ((color.B - ground.B) * a)));
+    }
 
     /// <summary>Fills <paramref name="rect"/>'s corners with the parent's ground, then a rounded card with a hairline.</summary>
     public static void Card(Graphics g, Control control, Rectangle rect, int radius, Color fill, Color edge)
@@ -38,6 +42,9 @@ internal sealed class HeroCard : Control
     private string _detail = "";
     private Color _valueColor = Theme.Text;
     private double? _used;
+    private double _displayUsed;
+    private double _animFromUsed;
+    private long _animStartTicks;
 
     public HeroCard()
     {
@@ -48,9 +55,50 @@ internal sealed class HeroCard : Control
     /// <param name="usedFraction">Used space as 0..1, or null when the Volume's size is unknown.</param>
     public void Set(string caption, string value, Color valueColor, string detail, double? usedFraction)
     {
+        var prevUsed = _used;
         (_caption, _value, _valueColor, _detail, _used) = (caption, value, valueColor, detail, usedFraction);
         AccessibleName = $"{caption} {value}, {detail}" + (usedFraction is { } u ? $", {u:P0} used" : "");
+        if (usedFraction is not { } target)
+        {
+            _displayUsed = 0;
+            Invalidate();
+            return;
+        }
+        target = Math.Clamp(target, 0.0, 1.0);
+        if (!UiMotion.Enabled || !IsHandleCreated || !Visible)
+        {
+            _displayUsed = target;
+            Invalidate();
+            return;
+        }
+        if (prevUsed is null || Math.Abs(target - _displayUsed) > 0.002)
+        {
+            _animFromUsed = prevUsed is null ? 0.0 : _displayUsed;
+            _animStartTicks = Environment.TickCount64;
+            UiMotion.Start(StepGauge);
+        }
+        else
+        {
+            _displayUsed = target;
+            Invalidate();
+        }
+    }
+
+    private bool StepGauge()
+    {
+        if (IsDisposed || !IsHandleCreated || _used is not { } target)
+            return false;
+        target = Math.Clamp(target, 0.0, 1.0);
+        var t = (Environment.TickCount64 - _animStartTicks) / 220.0;
+        var eased = UiMotion.EaseOutCubic(t);
+        _displayUsed = _animFromUsed + ((target - _animFromUsed) * eased);
         Invalidate();
+        if (t >= 1.0)
+        {
+            _displayUsed = target;
+            return false;
+        }
+        return true;
     }
 
     private int GaugeSize => Math.Clamp(Height - 28, 56, 104);
@@ -65,7 +113,8 @@ internal sealed class HeroCard : Control
         var box = new RectangleF(18 + (stroke / 2), ((Height - size) / 2f) + (stroke / 2), size - stroke, size - stroke);
         using (var track = new Pen(Theme.Grid, stroke) { StartCap = LineCap.Round, EndCap = LineCap.Round })
             g.DrawArc(track, box, 135, 270);
-        if (_used is { } used && used > 0)
+        var shownUsed = _used is null ? (double?)null : _displayUsed;
+        if (shownUsed is { } used && used > 0.001)
         {
             // The ramp runs from the gauge's bottom-left to its top-right, as in the logo.
             using var ramp = new LinearGradientBrush(new PointF(box.Left, box.Bottom), new PointF(box.Right, box.Top), Theme.RampFrom, Theme.RampTo);
@@ -73,7 +122,7 @@ internal sealed class HeroCard : Control
             g.DrawArc(arc, box, 135, (float)(270 * Math.Min(1, used)));
         }
         const TextFormatFlags centre = TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
-        var pct = _used is { } u2 ? $"{Math.Round(u2 * 100):0}%" : "—";
+        var pct = shownUsed is { } u2 ? $"{Math.Round(u2 * 100):0}%" : "—";
         var gauge = Rectangle.Round(box);
         var block = Theme.Section.Height + Theme.Small.Height;
         var top = gauge.Top + ((gauge.Height - block) / 2);
@@ -103,6 +152,7 @@ internal sealed class StatTile : Control
     private Color _ground = Theme.Card;
     private Color _edge = Theme.Hairline;
     private bool _hover;
+    private double _hoverMix;
 
     public StatTile(string caption)
     {
@@ -124,13 +174,31 @@ internal sealed class StatTile : Control
         Invalidate();
     }
 
+    private void AnimateHover()
+    {
+        if (!UiMotion.Enabled || !IsHandleCreated || !Visible)
+        {
+            _hoverMix = _hover ? 1.0 : 0.0;
+            Invalidate();
+            return;
+        }
+        UiMotion.Start(() =>
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return false;
+            var more = UiMotion.StepTowards(ref _hoverMix, _hover ? 1.0 : 0.0, 0.16);
+            Invalidate();
+            return more;
+        });
+    }
+
     protected override void OnMouseEnter(EventArgs e)
     {
         base.OnMouseEnter(e);
         if (Interactive)
         {
             _hover = true;
-            Invalidate();
+            AnimateHover();
         }
     }
 
@@ -140,15 +208,16 @@ internal sealed class StatTile : Control
         if (_hover)
         {
             _hover = false;
-            Invalidate();
+            AnimateHover();
         }
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        var fill = Interactive && _hover ? Theme.Hover : _ground;
-        var edge = Interactive && _hover ? Theme.SelectedEdge : _edge;
+        var mix = Interactive ? _hoverMix : 0.0;
+        var fill = Tint.Over(Theme.Hover, _ground, mix);
+        var edge = Tint.Over(Theme.SelectedEdge, _edge, mix);
         Tint.Card(g, this, new Rectangle(0, 0, Width - 1, Height - 1), 12, fill, edge);
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
         var width = Math.Max(0, Width - 32);
@@ -170,6 +239,8 @@ internal sealed class SwingChip : Button
 {
     private bool _hover;
     private bool _selected;
+    private double _hoverMix;
+    private double _selectMix;
 
     public SwingChip(SwingRow swing, string text)
     {
@@ -199,21 +270,46 @@ internal sealed class SwingChip : Button
             if (_selected == value)
                 return;
             _selected = value;
-            Invalidate();
+            AnimateState();
         }
     }
 
-    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+    private void AnimateState()
+    {
+        if (!UiMotion.Enabled || !IsHandleCreated || !Visible)
+        {
+            _hoverMix = _hover ? 1.0 : 0.0;
+            _selectMix = _selected ? 1.0 : 0.0;
+            Invalidate();
+            return;
+        }
+        UiMotion.Start(StepState);
+    }
 
-    protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
+    private bool StepState()
+    {
+        if (IsDisposed || !IsHandleCreated)
+            return false;
+        var h = UiMotion.StepTowards(ref _hoverMix, _hover ? 1.0 : 0.0, 0.16);
+        var s = UiMotion.StepTowards(ref _selectMix, _selected ? 1.0 : 0.0, 0.15);
+        Invalidate();
+        return h || s;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { _hover = true; AnimateState(); base.OnMouseEnter(e); }
+
+    protected override void OnMouseLeave(EventArgs e) { _hover = false; AnimateState(); base.OnMouseLeave(e); }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         var back = Parent?.BackColor ?? Theme.Card;
-        var fill = _selected ? Kind : Tint.Over(Kind, back, _hover ? 0.24 : 0.13);
-        Tint.Card(g, this, new Rectangle(0, 0, Width - 1, Height - 1), (Height - 1) / 2, fill, _selected ? Kind : Tint.Over(Kind, back, 0.5));
-        TextRenderer.DrawText(g, Text, Font, ClientRectangle, _selected ? Theme.Ground : Kind,
+        var restFill = Tint.Over(Kind, back, 0.13 + (0.12 * _hoverMix));
+        var fill = Tint.Over(Kind, restFill, _selectMix);
+        var edge = Tint.Over(Kind, back, 0.5 + (0.5 * Math.Max(_selectMix, _hoverMix * 0.45)));
+        var fore = Tint.Over(Theme.Ground, Kind, _selectMix);
+        Tint.Card(g, this, new Rectangle(0, 0, Width - 1, Height - 1), (Height - 1) / 2, fill, edge);
+        TextRenderer.DrawText(g, Text, Font, ClientRectangle, fore,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
         if (Focused && ShowFocusCues)
         {
@@ -240,6 +336,8 @@ internal sealed class ProbeTiles : Control
     private readonly ToolTip _tips = new() { InitialDelay = 250 };
     private long? _selected;
     private int _hover = -1;
+    private int _lastHover = -1;
+    private double _hoverMix;
     private string _lastTip = "";
 
     public ProbeTiles()
@@ -362,16 +460,38 @@ internal sealed class ProbeTiles : Control
         }
     }
 
+    private void AnimateHover(int nextHover)
+    {
+        if (nextHover >= 0)
+            _lastHover = nextHover;
+        _hover = nextHover;
+        if (!UiMotion.Enabled || !IsHandleCreated || !Visible)
+        {
+            _hoverMix = _hover >= 0 ? 1.0 : 0.0;
+            Invalidate();
+            return;
+        }
+        if (_hover >= 0)
+            _hoverMix = Math.Max(0.35, _hoverMix);
+        UiMotion.Start(StepHover);
+    }
+
+    private bool StepHover()
+    {
+        if (IsDisposed || !IsHandleCreated)
+            return false;
+        var more = UiMotion.StepTowards(ref _hoverMix, _hover >= 0 ? 1.0 : 0.0, 0.18);
+        Invalidate();
+        return more;
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
         var hit = _tiles.FindIndex(t => t.Rect.Contains(e.Location));
         Cursor = hit >= 0 && _tiles[hit].ClickId is not null ? Cursors.Hand : Cursors.Default;
         if (hit != _hover)
-        {
-            _hover = hit;
-            Invalidate();
-        }
+            AnimateHover(hit);
         var tip = hit >= 0 ? _tiles[hit].Tip : "";
         if (tip != _lastTip)
         {
@@ -383,8 +503,8 @@ internal sealed class ProbeTiles : Control
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        _hover = -1;
-        Invalidate();
+        if (_hover != -1)
+            AnimateHover(-1);
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
@@ -400,17 +520,22 @@ internal sealed class ProbeTiles : Control
         g.Clear(BackColor);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
+        var activeHover = _hover >= 0 ? _hover : _lastHover;
         for (var n = 0; n < _tiles.Count; n++)
         {
             var (rect, probe, clickId, title, size, _) = _tiles[n];
             var big = rect.Height == TopRow && !_compact;
             var selected = probe is not null && probe.Id == _selected;
-            var fill = selected ? Theme.Selected : n == _hover && clickId is not null ? Theme.Hover : big ? Tint.Over(Theme.Fill, Theme.Card, 0.22) : Theme.Raised;
+            var baseFill = big ? Tint.Over(Theme.Fill, Theme.Card, 0.22) : Theme.Raised;
+            var baseEdge = probe is null ? Theme.Hairline : Theme.StrongEdge;
+            var hoverT = n == activeHover && clickId is not null ? _hoverMix : 0.0;
+            var fill = selected ? Theme.Selected : Tint.Over(Theme.Hover, baseFill, hoverT);
+            var edge = selected ? Theme.SelectedEdge : Tint.Over(Theme.SelectedEdge, baseEdge, hoverT);
             using (var path = CardPanel.Rounded(rect with { Width = rect.Width - 1, Height = rect.Height - 1 }, 8))
             {
                 using var brush = new SolidBrush(fill);
                 g.FillPath(brush, path);
-                using var pen = new Pen(selected ? Theme.SelectedEdge : n == _hover && clickId is not null ? Theme.SelectedEdge : probe is null ? Theme.Hairline : Theme.StrongEdge);
+                using var pen = new Pen(edge);
                 g.DrawPath(pen, path);
             }
             var inner = Rectangle.Inflate(rect, -10, 0);
@@ -453,6 +578,7 @@ internal sealed class VirtualDiskBanner : Control
     private bool _narrow;
     private int _hoverChip = -1;
     private int _copiedChip = -1;
+    private double _copiedFlash;
     private string _lastTip = "";
 
     public VirtualDiskBanner()
@@ -516,7 +642,16 @@ internal sealed class VirtualDiskBanner : Control
         var step = _chips[hit];
         CommandClicked?.Invoke(step.Step.Command);
         _copiedChip = step.Index;
+        _copiedFlash = 1.0;
         Invalidate();
+        UiMotion.Start(() =>
+        {
+            if (IsDisposed || !IsHandleCreated || _copiedChip != step.Index)
+                return false;
+            var more = UiMotion.StepTowards(ref _copiedFlash, 0.25, 0.06);
+            Invalidate();
+            return more;
+        });
         var reset = new System.Windows.Forms.Timer { Interval = 1800 };
         reset.Tick += (_, _) =>
         {
@@ -524,6 +659,7 @@ internal sealed class VirtualDiskBanner : Control
             if (_copiedChip == step.Index)
             {
                 _copiedChip = -1;
+                _copiedFlash = 0;
                 Invalidate();
             }
         };
@@ -606,9 +742,13 @@ internal sealed class VirtualDiskBanner : Control
             _chips.Add((chip, step, i));
             using (var chipPath = CardPanel.Rounded(chip, 5))
             {
-                using var chipFill = new SolidBrush(i == _hoverChip ? Theme.Hover : Theme.Ground);
+                var baseFill = i == _hoverChip ? Theme.Hover : Theme.Ground;
+                var baseEdge = i == _hoverChip ? Theme.SelectedEdge : Theme.Hairline;
+                var chipFillColor = copied ? Tint.Over(Theme.LimeGround, baseFill, Math.Max(0.45, _copiedFlash)) : baseFill;
+                var chipEdgeColor = copied ? Tint.Over(Theme.Lime, Theme.LimeEdge, _copiedFlash) : baseEdge;
+                using var chipFill = new SolidBrush(chipFillColor);
                 g.FillPath(chipFill, chipPath);
-                using var chipPen = new Pen(i == _hoverChip ? Theme.SelectedEdge : Theme.Hairline);
+                using var chipPen = new Pen(chipEdgeColor);
                 g.DrawPath(chipPen, chipPath);
             }
             TextRenderer.DrawText(g, cmdText, Theme.MonoSmall, Rectangle.Inflate(chip, -8, 0), copied ? Theme.Lime : Theme.Text, flags | TextFormatFlags.EndEllipsis);

@@ -79,6 +79,7 @@ internal sealed class DashboardForm : Form
     private ScottPlot.Plottables.HorizontalSpan? _dragSpan;
 
     // Tabs
+    private readonly TabStripPanel _tabStrip = new() { Dock = DockStyle.Top, Padding = new Padding(5, 0, 0, 0), BackColor = Theme.Card, WrapContents = false };
     private readonly ToggleButton _spaceTab = new("Where space is", ToggleLook.Tab);
     private readonly ToggleButton _swingsTab = new("Swings", ToggleLook.Tab);
     private readonly ToggleButton _writersTab = new("Top Writers", ToggleLook.Tab);
@@ -125,8 +126,13 @@ internal sealed class DashboardForm : Form
     private double? _dragFrom;
     private int _dragStartPx;
     private long? _copiedProbe;
+    private double _copiedProbeFlash;
     private long? _hoverProbeCommandId;
+    private bool _isProbing;
+    private double _probePulse;
     private SwingRow? _drawerSwing;
+    private double _drawerSlideProgress = 1.0;
+    private long _drawerSlideStartTicks;
     private bool _syncingSelection;
     private string _diagnostics = "";
     private readonly ToolTip _footerTip = new() { InitialDelay = 600 };
@@ -222,6 +228,7 @@ internal sealed class DashboardForm : Form
     /// <summary>A dashboard that, once shown, saves screenshots to <paramref name="folder"/> and closes.</summary>
     public static DashboardForm ForScreenshots(DiskDriftOptions options, string folder, bool useLive = false)
     {
+        UiMotion.Suppress = true;
         var dbPath = useLive ? options.DatabasePath : DemoDatabase.Create(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         var volume = options.Volumes.Contains(DiskDriftOptions.DefaultVolume) ? DiskDriftOptions.DefaultVolume : options.Volumes[0];
         var form = new DashboardForm(new DashboardLoader(new ReadOnlyDb(dbPath), options), new PipeClient(), volume, persist: false)
@@ -236,6 +243,7 @@ internal sealed class DashboardForm : Form
             }
             finally
             {
+                UiMotion.Suppress = false;
                 form.Close();
                 if (!useLive && Path.GetDirectoryName(dbPath) is { } tempDir)
                 {
@@ -541,13 +549,16 @@ internal sealed class DashboardForm : Form
         _probeNow.Click += async (_, _) => await ProbeNowAsync();
         _statusDot.Paint += (_, e) =>
         {
-            // A dot with a soft halo, lime while the Collector runs, red when it doesn't.
+            // A dot with a soft halo, lime while the Collector runs, red when it doesn't; pulses gently during ProbeNow.
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             e.Graphics.Clear(Theme.Band);
-            using var halo = new SolidBrush(Tint.Over(_statusDot.ForeColor, Theme.Band, 0.22));
+            var haloAlpha = _isProbing ? 0.16 + (0.48 * _probePulse) : 0.22;
+            using var halo = new SolidBrush(Tint.Over(_statusDot.ForeColor, Theme.Band, haloAlpha));
             e.Graphics.FillEllipse(halo, 0, 0, 11, 11);
+            var dotInset = _isProbing ? (float)(2.4 - (0.6 * _probePulse)) : 2f;
+            var dotSize = _isProbing ? (float)(6.2 + (1.2 * _probePulse)) : 7f;
             using var brush = new SolidBrush(_statusDot.ForeColor);
-            e.Graphics.FillEllipse(brush, 2, 2, 7, 7);
+            e.Graphics.FillEllipse(brush, dotInset, dotInset, dotSize, dotSize);
         };
         var dotAndStatus = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Band, Margin = Padding.Empty };
         dotAndStatus.Controls.Add(_statusDot);
@@ -661,15 +672,11 @@ internal sealed class DashboardForm : Form
         // Inset by (5, 4, 5, 6) so docked child controls stay strictly inside the 12 px rounded border arcs.
         var card = new CardPanel { Dock = DockStyle.Fill, Padding = new Padding(5, 4, 5, 6), Margin = Padding.Empty };
 
-        var strip = new FlowLayoutPanel { Dock = DockStyle.Top, Height = TabStripHeight, Padding = new Padding(5, 0, 0, 0), BackColor = Theme.Card, WrapContents = false };
-        strip.Paint += (_, e) =>
-        {
-            using var pen = new Pen(Theme.Hairline);
-            e.Graphics.DrawLine(pen, 0, strip.Height - 1, strip.Width, strip.Height - 1);
-        };
-        strip.Controls.Add(_spaceTab);
-        strip.Controls.Add(_swingsTab);
-        strip.Controls.Add(_writersTab);
+        _tabStrip.Height = TabStripHeight;
+        _tabStrip.Controls.Add(_spaceTab);
+        _tabStrip.Controls.Add(_swingsTab);
+        _tabStrip.Controls.Add(_writersTab);
+        _tabStrip.Layout += (_, _) => _tabStrip.MoveIndicatorTo(ActiveTabButton(), animate: false);
         _spaceTab.Click += (_, _) => { ShowTab(SpaceTab); SaveSettings(); };
         _swingsTab.Click += (_, _) => { ShowTab(SwingsTab); SaveSettings(); };
         _writersTab.Click += (_, _) => { ShowTab(WritersTab); SaveSettings(); };
@@ -683,7 +690,7 @@ internal sealed class DashboardForm : Form
         pages.Controls.Add(_swingsPage);
         pages.Controls.Add(_writersPage);
         card.Controls.Add(pages);
-        card.Controls.Add(strip);
+        card.Controls.Add(_tabStrip);
         ShowTab(_tab);
         return card;
     }
@@ -883,6 +890,13 @@ internal sealed class DashboardForm : Form
         return intro;
     }
 
+    private ToggleButton ActiveTabButton() => _tab switch
+    {
+        SwingsTab => _swingsTab,
+        WritersTab => _writersTab,
+        _ => _spaceTab,
+    };
+
     private void ShowTab(string tab)
     {
         if (_drawer.Visible && tab != SwingsTab)
@@ -891,6 +905,7 @@ internal sealed class DashboardForm : Form
         _spaceTab.Selected = tab == SpaceTab;
         _swingsTab.Selected = tab == SwingsTab;
         _writersTab.Selected = tab == WritersTab;
+        _tabStrip.MoveIndicatorTo(ActiveTabButton(), animate: true);
         _spacePage.Visible = tab == SpaceTab;
         _swingsPage.Visible = tab == SwingsTab;
         _writersPage.Visible = tab == WritersTab;
@@ -1242,7 +1257,16 @@ internal sealed class DashboardForm : Form
         if (!_probeNow.Enabled)
             return;
         _probeNow.Enabled = false;
-        _probeNow.Text = "Probing…";
+        _probeNow.Text = "Probing\u2026";
+        _isProbing = true;
+        UiMotion.Start(() =>
+        {
+            if (!_isProbing || IsDisposed)
+                return false;
+            _probePulse = 0.5 + (0.5 * Math.Sin(Environment.TickCount64 / 140.0));
+            _statusDot.Invalidate();
+            return true;
+        });
         try
         {
             var response = await Task.Run(() => _pipe.ProbeNowAsync());
@@ -1256,6 +1280,9 @@ internal sealed class DashboardForm : Form
         }
         finally
         {
+            _isProbing = false;
+            _probePulse = 0;
+            _statusDot.Invalidate();
             _probeNow.Text = "Probe now";
             _probeNow.Enabled = true;
         }
@@ -1611,15 +1638,21 @@ internal sealed class DashboardForm : Form
                     var chipHeight = Theme.MonoSmall.Height + 10;
                     var chip = new Rectangle(x, cell.Y + ((cell.Height - chipHeight) / 2), Math.Min(cell.Width, size.Width + 16), chipHeight);
                     var hovered = _hoverProbeCommandId == tag.Probe.Id;
+                    var isCopied = _copiedProbe == tag.Probe.Id;
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                     using (var path = CardPanel.Rounded(chip, 5))
                     {
-                        using var fill = new SolidBrush(hovered ? Theme.Hover : Theme.Ground);
+                        var baseFill = hovered ? Theme.Hover : Theme.Ground;
+                        var chipFill = isCopied ? Tint.Over(Theme.LimeGround, baseFill, Math.Max(0.45, _copiedProbeFlash)) : baseFill;
+                        var chipEdge = isCopied
+                            ? Tint.Over(Theme.Lime, Theme.LimeEdge, _copiedProbeFlash)
+                            : hovered ? Theme.SelectedEdge : Theme.Hairline;
+                        using var fill = new SolidBrush(chipFill);
                         g.FillPath(fill, path);
-                        using var pen = new Pen(hovered ? Theme.SelectedEdge : Theme.Hairline);
+                        using var pen = new Pen(chipEdge);
                         g.DrawPath(pen, path);
                     }
-                    TextRenderer.DrawText(g, text, Theme.MonoSmall, Rectangle.Inflate(chip, -8, 0), _copiedProbe == tag.Probe.Id ? Theme.Lime : Theme.Text, flags | TextFormatFlags.VerticalCenter);
+                    TextRenderer.DrawText(g, text, Theme.MonoSmall, Rectangle.Inflate(chip, -8, 0), isCopied ? Theme.Lime : Theme.Text, flags | TextFormatFlags.VerticalCenter);
                     x = chip.Right + 10;
                 }
                 if (tag.Hint.Note.Length > 0 && x < cell.Right - 20)
@@ -1654,7 +1687,16 @@ internal sealed class DashboardForm : Form
         if (!CopyText(command))
             return;
         _copiedProbe = tag.Probe.Id;
+        _copiedProbeFlash = 1.0;
         _probeList.Invalidate();
+        UiMotion.Start(() =>
+        {
+            if (_copiedProbe != tag.Probe.Id || IsDisposed)
+                return false;
+            var more = UiMotion.StepTowards(ref _copiedProbeFlash, 0.25, 0.06);
+            _probeList.Invalidate();
+            return more;
+        });
         var reset = new System.Windows.Forms.Timer { Interval = 1800 };
         reset.Tick += (_, _) =>
         {
@@ -1662,6 +1704,7 @@ internal sealed class DashboardForm : Form
             if (_copiedProbe == tag.Probe.Id)
             {
                 _copiedProbe = null;
+                _copiedProbeFlash = 0;
                 _probeList.Invalidate();
             }
         };
@@ -1871,7 +1914,9 @@ internal sealed class DashboardForm : Form
         if (WindowState == FormWindowState.Minimized)
             return;
         var width = Math.Min(LogicalToDeviceUnits(DrawerWidth), ClientSize.Width);
-        _drawer.Bounds = new Rectangle(ClientSize.Width - width, HeaderHeight, width, Math.Max(0, ClientSize.Height - HeaderHeight - _footer.Height));
+        var targetLeft = ClientSize.Width - width;
+        var left = (int)Math.Round(ClientSize.Width - (width * _drawerSlideProgress));
+        _drawer.Bounds = new Rectangle(Math.Max(targetLeft, left), HeaderHeight, width, Math.Max(0, ClientSize.Height - HeaderHeight - _footer.Height));
     }
 
     /// <summary>Shows <paramref name="swing"/> in the drawer; <paramref name="refresh"/> keeps the selected item (the 30 s reload).</summary>
@@ -1893,10 +1938,25 @@ internal sealed class DashboardForm : Form
         // Open location disabled.
         if (!_drawer.Visible)
         {
+            var animateSlide = UiMotion.Enabled && IsHandleCreated && !refresh;
+            _drawerSlideProgress = animateSlide ? 0.0 : 1.0;
             PlaceDrawer();
             _drawer.Visible = true;
             _drawer.SendToBack();
             _drawer.BringToFront();
+            if (animateSlide)
+            {
+                _drawerSlideStartTicks = Environment.TickCount64;
+                UiMotion.Start(() =>
+                {
+                    if (!_drawer.Visible || IsDisposed)
+                        return false;
+                    var t = Math.Clamp((Environment.TickCount64 - _drawerSlideStartTicks) / 140.0, 0, 1);
+                    _drawerSlideProgress = UiMotion.EaseOutCubic(t);
+                    PlaceDrawer();
+                    return t < 1;
+                });
+            }
         }
         var kept = same && _itemList.SelectedItems.Count > 0 ? _itemList.SelectedItems[0].SubItems[1].Text + "|" + _itemList.SelectedItems[0].SubItems[0].Text : null;
         var probes = items.Where(i => i.Source != Attribution.ProcessSource).ToList();
@@ -1957,6 +2017,7 @@ internal sealed class DashboardForm : Form
     private void CloseDrawer()
     {
         _drawer.Visible = false;
+        _drawerSlideProgress = 1.0;
         _drawerSwing = null;
         _syncingSelection = true;
         foreach (ListViewItem item in _swingList.Items)

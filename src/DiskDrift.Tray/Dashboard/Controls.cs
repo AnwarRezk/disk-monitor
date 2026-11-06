@@ -43,6 +43,144 @@ internal sealed class CardPanel : Panel
     }
 }
 
+/// <summary>
+/// Shared UI-thread animation ticker (~60 fps while active, zero timers running when idle).
+/// Automatically disabled when Windows client-area animations are turned off or during <c>--screenshot</c> runs.
+/// </summary>
+internal static class UiMotion
+{
+    public static bool Suppress { get; set; }
+
+    public static bool Enabled => !Suppress && SystemInformation.UIEffectsEnabled && !SystemInformation.TerminalServerSession;
+
+    private static readonly System.Windows.Forms.Timer Timer = new() { Interval = 16 };
+    private static readonly List<Func<bool>> Active = [];
+    private static bool _wired;
+
+    public static void Start(Func<bool> tick)
+    {
+        if (!Enabled)
+            return;
+        if (!_wired)
+        {
+            _wired = true;
+            Timer.Tick += (_, _) =>
+            {
+                for (var i = Active.Count - 1; i >= 0; i--)
+                {
+                    if (!Active[i]())
+                        Active.RemoveAt(i);
+                }
+                if (Active.Count == 0)
+                    Timer.Stop();
+            };
+        }
+        if (!Active.Contains(tick))
+            Active.Add(tick);
+        if (!Timer.Enabled)
+            Timer.Start();
+    }
+
+    public static double EaseOutCubic(double t)
+    {
+        t = Math.Clamp(t, 0.0, 1.0) - 1.0;
+        return (t * t * t) + 1.0;
+    }
+
+    public static bool StepTowards(ref double current, double target, double step)
+    {
+        if (!Enabled || Math.Abs(target - current) <= step)
+        {
+            current = target;
+            return false;
+        }
+        current += Math.Sign(target - current) * step;
+        return true;
+    }
+}
+
+/// <summary>
+/// A tab strip <see cref="FlowLayoutPanel"/> that draws the bottom hairline and animates the 2 px pink active-tab
+/// indicator smoothly between tabs.
+/// </summary>
+internal sealed class TabStripPanel : FlowLayoutPanel
+{
+    private double _fromX, _fromW, _toX, _toW, _curX, _curW;
+    private long _animStartTicks;
+    private bool _initialized;
+
+    public TabStripPanel()
+    {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+
+    public (int X, int Width) Indicator
+    {
+        get
+        {
+            if (_initialized && _curW > 0)
+                return ((int)Math.Round(_curX), (int)Math.Round(_curW));
+            if (Controls.OfType<ToggleButton>().FirstOrDefault(b => b.Selected) is { Width: > 0 } selected)
+                return (selected.Left, selected.Width);
+            return (0, 0);
+        }
+    }
+
+    public void MoveIndicatorTo(Control tab, bool animate = true)
+    {
+        if (tab.Width <= 0)
+            return;
+        _toX = tab.Left;
+        _toW = tab.Width;
+        if (!_initialized || !animate || !UiMotion.Enabled || !IsHandleCreated)
+        {
+            _initialized = true;
+            (_fromX, _fromW, _curX, _curW) = (_toX, _toW, _toX, _toW);
+            InvalidateIndicator();
+            return;
+        }
+        if (Math.Abs(_curX - _toX) < 0.5 && Math.Abs(_curW - _toW) < 0.5)
+            return;
+        _fromX = _curX;
+        _fromW = _curW;
+        _animStartTicks = Environment.TickCount64;
+        UiMotion.Start(StepIndicator);
+    }
+
+    private bool StepIndicator()
+    {
+        if (IsDisposed || !IsHandleCreated)
+            return false;
+        var t = (Environment.TickCount64 - _animStartTicks) / 150.0;
+        var eased = UiMotion.EaseOutCubic(t);
+        _curX = _fromX + ((_toX - _fromX) * eased);
+        _curW = _fromW + ((_toW - _fromW) * eased);
+        InvalidateIndicator();
+        return t < 1.0;
+    }
+
+    private void InvalidateIndicator()
+    {
+        Invalidate(new Rectangle(0, Math.Max(0, Height - 4), Width, 4));
+        foreach (Control c in Controls)
+            c.Invalidate(new Rectangle(0, Math.Max(0, c.Height - 4), c.Width, 4));
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        using (var pen = new Pen(Theme.Hairline))
+            e.Graphics.DrawLine(pen, 0, Height - 1, Width, Height - 1);
+        var (ix, iw) = Indicator;
+        if (iw > 0)
+        {
+            using var underline = new SolidBrush(Theme.Line);
+            e.Graphics.FillRectangle(underline, ix, Math.Max(0, Height - 3), iw, 2);
+        }
+    }
+}
+
 internal enum ToggleLook
 {
     /// <summary>A Volume tab in the header band: outlined violet and filled when selected, plain text otherwise.</summary>
@@ -66,6 +204,10 @@ internal sealed class ToggleButton : Button
 {
     private bool _selected;
     private bool _hover;
+    private bool _pressed;
+    private double _hoverMix;
+    private double _selectMix;
+    private double _pressMix;
 
     public ToggleButton(string text, ToggleLook look)
     {
@@ -105,7 +247,7 @@ internal sealed class ToggleButton : Button
                 return;
             _selected = value;
             AccessibleDescription = value ? "selected" : null;
-            Invalidate();
+            AnimateState();
         }
     }
 
@@ -121,9 +263,53 @@ internal sealed class ToggleButton : Button
         };
     }
 
-    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+    private void AnimateState()
+    {
+        if (!UiMotion.Enabled || !IsHandleCreated || !Visible)
+        {
+            _hoverMix = _hover ? 1.0 : 0.0;
+            _selectMix = _selected ? 1.0 : 0.0;
+            _pressMix = _pressed ? 1.0 : 0.0;
+            Invalidate();
+            return;
+        }
+        UiMotion.Start(StepState);
+    }
 
-    protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
+    private bool StepState()
+    {
+        if (IsDisposed || !IsHandleCreated)
+            return false;
+        var h = UiMotion.StepTowards(ref _hoverMix, _hover ? 1.0 : 0.0, 0.16);
+        var s = UiMotion.StepTowards(ref _selectMix, _selected ? 1.0 : 0.0, 0.14);
+        var p = UiMotion.StepTowards(ref _pressMix, _pressed ? 1.0 : 0.0, 0.25);
+        Invalidate();
+        return h || s || p;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { _hover = true; AnimateState(); base.OnMouseEnter(e); }
+
+    protected override void OnMouseLeave(EventArgs e) { _hover = false; _pressed = false; AnimateState(); base.OnMouseLeave(e); }
+
+    protected override void OnMouseDown(MouseEventArgs mevent)
+    {
+        if (mevent.Button == MouseButtons.Left)
+        {
+            _pressed = true;
+            AnimateState();
+        }
+        base.OnMouseDown(mevent);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs mevent)
+    {
+        if (_pressed)
+        {
+            _pressed = false;
+            AnimateState();
+        }
+        base.OnMouseUp(mevent);
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -132,35 +318,46 @@ internal sealed class ToggleButton : Button
         var back = Parent?.BackColor ?? Theme.Card;
         g.Clear(back);
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-        var fore = _selected ? Theme.Text : Theme.Muted;
+        var textBlend = Math.Max(_selectMix, _hoverMix * 0.85);
+        var fore = Tint.Over(Theme.Text, Theme.Muted, textBlend);
 
         switch (Look)
         {
             case ToggleLook.Chip:
-                if (_selected || _hover)
+                if (_selectMix > 0.01 || _hoverMix > 0.01)
                 {
                     using var path = CardPanel.Rounded(rect, 8);
-                    using var fill = new SolidBrush(_selected ? Theme.Hover : Theme.RowHover);
+                    var chipFill = Tint.Over(Theme.Hover, Tint.Over(Theme.RowHover, back, _hoverMix), _selectMix);
+                    var chipEdge = Tint.Over(Theme.SelectedEdge, Tint.Over(Theme.Hairline, back, _hoverMix), _selectMix);
+                    using var fill = new SolidBrush(chipFill);
                     g.FillPath(fill, path);
-                    using var pen = new Pen(_selected ? Theme.SelectedEdge : Theme.Hairline);
+                    using var pen = new Pen(chipEdge);
                     g.DrawPath(pen, path);
                 }
                 break;
             case ToggleLook.Segment:
                 using (var path = CardPanel.Rounded(rect, rect.Height / 2))
                 {
-                    using var fill = new SolidBrush(_selected ? Theme.Selected : _hover ? Theme.Hover : back);
+                    var segFill = Tint.Over(Theme.Selected, Tint.Over(Theme.Hover, back, _hoverMix), _selectMix);
+                    if (_pressMix > 0.01)
+                        segFill = Tint.Over(Theme.Ground, segFill, _pressMix * 0.25);
+                    var segEdge = Tint.Over(Theme.SelectedEdge, Tint.Over(Theme.SelectedEdge, Theme.StrongEdge, _hoverMix * 0.45), _selectMix);
+                    using var fill = new SolidBrush(segFill);
                     g.FillPath(fill, path);
-                    using var pen = new Pen(_selected ? Theme.SelectedEdge : Theme.StrongEdge);
+                    using var pen = new Pen(segEdge);
                     g.DrawPath(pen, path);
                 }
                 break;
             case ToggleLook.Action:
                 using (var path = CardPanel.Rounded(rect, 8))
                 {
-                    using var fill = new SolidBrush(!Enabled ? back : _hover ? Theme.Hover : back);
+                    var actFill = !Enabled ? back : Tint.Over(Theme.Hover, back, _hoverMix);
+                    if (_pressMix > 0.01 && Enabled)
+                        actFill = Tint.Over(Theme.Selected, actFill, _pressMix * 0.35);
+                    var actEdge = !Enabled ? Theme.Hairline : Tint.Over(Theme.AccentHover, Theme.SelectedEdge, _hoverMix);
+                    using var fill = new SolidBrush(actFill);
                     g.FillPath(fill, path);
-                    using var pen = new Pen(Enabled ? Theme.SelectedEdge : Theme.Hairline);
+                    using var pen = new Pen(actEdge);
                     g.DrawPath(pen, path);
                 }
                 fore = Enabled ? Theme.Text : Theme.Faint;
@@ -168,26 +365,40 @@ internal sealed class ToggleButton : Button
             case ToggleLook.Primary:
                 using (var path = CardPanel.Rounded(rect, 8))
                 {
-                    using var fill = new SolidBrush(!Enabled ? Theme.Hover : _hover ? Theme.AccentHover : Theme.Accent);
+                    var priFill = !Enabled ? Theme.Hover : Tint.Over(Theme.AccentHover, Theme.Accent, _hoverMix);
+                    if (_pressMix > 0.01 && Enabled)
+                        priFill = Tint.Over(Theme.Selected, priFill, _pressMix * 0.35);
+                    using var fill = new SolidBrush(priFill);
                     g.FillPath(fill, path);
+                    if (Enabled && _hoverMix > 0.01)
+                    {
+                        using var glow = new Pen(Tint.Over(Color.White, priFill, _hoverMix * 0.28));
+                        g.DrawPath(glow, path);
+                    }
                 }
                 fore = Enabled ? Color.White : Theme.Muted;
                 break;
             case ToggleLook.Tab:
-                if (_selected)
+                if (Parent is TabStripPanel strip)
                 {
-                    using var underline = new SolidBrush(Theme.Line);
-                    g.FillRectangle(underline, 0, Height - 2, Width, 2);
+                    var (ix, iw) = strip.Indicator;
+                    if (iw > 0)
+                    {
+                        using var underline = new SolidBrush(Theme.Line);
+                        g.FillRectangle(underline, ix - Left, Height - 2, iw, 2);
+                    }
                 }
-                else if (_hover)
+                else if (_selectMix > 0.01)
                 {
-                    fore = Theme.Text;
+                    using var underline = new SolidBrush(Tint.Over(Theme.Line, back, _selectMix));
+                    g.FillRectangle(underline, 0, Height - 2, Width, 2);
                 }
                 break;
         }
 
         var font = _selected && Look == ToggleLook.Segment ? Theme.BodyStrong : Font;
-        TextRenderer.DrawText(g, Text, font, ClientRectangle, fore,
+        var textRect = _pressMix > 0.25 && Look != ToggleLook.Tab ? ClientRectangle with { Y = ClientRectangle.Y + 1 } : ClientRectangle;
+        TextRenderer.DrawText(g, Text, font, textRect, fore,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
 
         // Tabs show focus as a faint underline: a dotted box around a just-clicked tab looked like a glitch.
