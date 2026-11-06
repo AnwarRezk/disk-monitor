@@ -34,6 +34,7 @@ Run `dotnet build` and `dotnet test` before declaring a milestone done. CI (`.gi
 - Config lists (`Volumes`, `Probes`) start empty and get defaults in `DiskDriftOptions.Normalize()`, because the binder appends to pre-filled lists. Add validation for new settings in `DiskDriftOptions.Validate()`.
 - The logo's source is `assets/logo.svg` (Violet palette). `assets/diskdrift.ico` (16–256 px) is the exe and window icon for both apps; the Tray embeds it plus `logo-128.png` for the dashboard header (`AppIcons`). Regenerate both from the SVG when it changes, and the setup's wizard images (`installer/wizard-*.bmp`: the logo on white, and on the #2d2150→#150f23 gradient). The tray icon itself stays the live free-space number. README screenshots live in `docs/images` (take them with `--screenshot`).
 - Log sinks go through `DiskDriftLogging.CappedFile(...)` (7 files × 10 MB). The data folder (and its ACL) must exist before the logger is created, since logs live inside it.
+- **Never commit directly to `main`.** Always create and switch to a feature branch (use the Linear issue's `gitBranchName` when working on a ticket), push the branch to `origin`, and open a pull request targeting `main` (formatted with `.claude/skills/pr/SKILL.md` and `.gitmessage`). Link the PR to the Linear issue.
 
 ## Architecture
 

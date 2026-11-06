@@ -390,3 +390,181 @@ internal sealed class ProbeTiles : Control
         }
     }
 }
+
+/// <summary>
+/// Conditional callout shown on the "Where space is" tab when virtual-disk Probes (WSL, Docker <c>.vhdx</c> files) are
+/// large or growing. Explains why <c>.vhdx</c> files grow steadily without triggering Swings and provides one-click
+/// copyable reclaim step commands from <c>docs/space-findings.md</c>.
+/// </summary>
+internal sealed class VirtualDiskBanner : Control
+{
+    private readonly List<(Rectangle Rect, ReclaimStep Step, int Index)> _chips = [];
+    private readonly ToolTip _tips = new() { InitialDelay = 250 };
+    private VirtualDiskCallout? _callout;
+    private bool _narrow;
+    private int _hoverChip = -1;
+    private int _copiedChip = -1;
+    private string _lastTip = "";
+
+    public VirtualDiskBanner()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        BackColor = Theme.Card;
+        AccessibleRole = AccessibleRole.Alert;
+    }
+
+    public event Action<string>? CommandClicked;
+
+    /// <summary>Height needed for the two-line callout card in device pixels.</summary>
+    public int WantedHeight => 8 + Math.Max(20, Theme.BodyStrong.Height) + 6 + Theme.MonoSmall.Height + 10 + 8;
+
+    public void Set(VirtualDiskCallout? callout, bool narrow)
+    {
+        _callout = callout;
+        _narrow = narrow;
+        AccessibleName = callout is null ? "" : $"{callout.Headline}. {callout.Explanation}";
+        Invalidate();
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        var hit = _chips.FindIndex(c => c.Rect.Contains(e.Location));
+        Cursor = hit >= 0 ? Cursors.Hand : Cursors.Default;
+        if (hit != _hoverChip)
+        {
+            _hoverChip = hit;
+            Invalidate();
+        }
+        var tip = hit >= 0
+            ? $"{_chips[hit].Step.Command} — {_chips[hit].Step.Detail}\nClick to copy command"
+            : _callout?.Explanation ?? "";
+        if (tip != _lastTip)
+        {
+            _lastTip = tip;
+            _tips.SetToolTip(this, tip);
+        }
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hoverChip != -1)
+        {
+            _hoverChip = -1;
+            Invalidate();
+        }
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        if (e.Button != MouseButtons.Left)
+            return;
+        var hit = _chips.FindIndex(c => c.Rect.Contains(e.Location));
+        if (hit < 0)
+            return;
+        var step = _chips[hit];
+        CommandClicked?.Invoke(step.Step.Command);
+        _copiedChip = step.Index;
+        Invalidate();
+        var reset = new System.Windows.Forms.Timer { Interval = 1800 };
+        reset.Tick += (_, _) =>
+        {
+            reset.Dispose();
+            if (_copiedChip == step.Index)
+            {
+                _copiedChip = -1;
+                Invalidate();
+            }
+        };
+        reset.Start();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(BackColor);
+        _chips.Clear();
+        if (_callout is not { } callout || Width <= 0 || Height <= 0)
+            return;
+
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var box = new Rectangle(0, 0, Width - 1, Height - 1);
+        using (var path = CardPanel.Rounded(box, 8))
+        {
+            using var fill = new SolidBrush(Tint.Over(Theme.Amber, Theme.Card, 0.08));
+            g.FillPath(fill, path);
+            using var pen = new Pen(Theme.AmberEdge);
+            g.DrawPath(pen, path);
+        }
+
+        const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter;
+        var topHeight = Math.Max(20, Theme.BodyStrong.Height);
+        var y = 8;
+        var x = 12;
+
+        // Pill: VIRTUAL DISKS
+        const string badge = "VIRTUAL DISKS";
+        var badgeSize = TextRenderer.MeasureText(g, badge, Theme.Caption, Size.Empty, flags);
+        var pill = new Rectangle(x, y + ((topHeight - 18) / 2), badgeSize.Width + 14, 18);
+        using (var pillPath = CardPanel.Rounded(pill, 8))
+        using (var pillFill = new SolidBrush(Theme.AmberGround))
+            g.FillPath(pillFill, pillPath);
+        TextRenderer.DrawText(g, badge, Theme.Caption, pill, Theme.Amber, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        x = pill.Right + 10;
+
+        // Headline
+        var headWidth = TextRenderer.MeasureText(g, callout.Headline, Theme.BodyStrong, Size.Empty, flags).Width;
+        var headRoom = Math.Max(0, box.Right - 12 - x);
+        TextRenderer.DrawText(g, callout.Headline, Theme.BodyStrong, new Rectangle(x, y, headRoom, topHeight), Theme.Text, flags | TextFormatFlags.EndEllipsis);
+        x += headWidth + 10;
+
+        // Steady-growth note when there is room
+        if (!_narrow && x < box.Right - 80)
+        {
+            const string why = "·   .vhdx files grow and never shrink on their own (steady growth, not Swings)";
+            TextRenderer.DrawText(g, why, Theme.Small, new Rectangle(x, y, box.Right - 12 - x, topHeight), Theme.Muted, flags | TextFormatFlags.EndEllipsis);
+        }
+
+        // Second line: numbered reclaim steps with clickable command chips
+        y += topHeight + 6;
+        x = 12;
+        var chipHeight = Theme.MonoSmall.Height + 10;
+        for (var i = 0; i < callout.Steps.Count; i++)
+        {
+            var step = callout.Steps[i];
+            var prefix = _narrow ? $"{i + 1}." : $"{i + 1}. {step.Label}:";
+            var prefixWidth = TextRenderer.MeasureText(g, prefix, Theme.Small, Size.Empty, flags).Width;
+            if (x + prefixWidth + 60 > box.Right - 12)
+                break;
+            TextRenderer.DrawText(g, prefix, Theme.Small, new Rectangle(x, y, prefixWidth, chipHeight), Theme.Muted, flags);
+            x += prefixWidth + 6;
+
+            var copied = _copiedChip == i;
+            var cmdText = copied ? "Copied" : step.Command;
+            var cmdWidth = TextRenderer.MeasureText(g, cmdText, Theme.MonoSmall, Size.Empty, flags).Width;
+            var chipWidth = Math.Min(box.Right - 12 - x, cmdWidth + 16);
+            if (chipWidth < 40)
+                break;
+            var chip = new Rectangle(x, y, chipWidth, chipHeight);
+            _chips.Add((chip, step, i));
+            using (var chipPath = CardPanel.Rounded(chip, 5))
+            {
+                using var chipFill = new SolidBrush(i == _hoverChip ? Theme.Hover : Theme.Ground);
+                g.FillPath(chipFill, chipPath);
+                using var chipPen = new Pen(i == _hoverChip ? Theme.SelectedEdge : Theme.Hairline);
+                g.DrawPath(chipPen, chipPath);
+            }
+            TextRenderer.DrawText(g, cmdText, Theme.MonoSmall, Rectangle.Inflate(chip, -8, 0), copied ? Theme.Lime : Theme.Text, flags | TextFormatFlags.EndEllipsis);
+            x = chip.Right + (_narrow ? 10 : 16);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _tips.Dispose();
+        base.Dispose(disposing);
+    }
+}

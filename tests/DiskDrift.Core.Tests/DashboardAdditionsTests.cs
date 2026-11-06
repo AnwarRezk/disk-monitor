@@ -143,6 +143,49 @@ public sealed class DashboardAdditionsTests : IDisposable
         Assert.Null(ReclaimHints.For("My own folder"));
     }
 
+    [Fact]
+    public void Virtual_disk_callout_surfaces_when_wsl_or_docker_is_large_with_steps_from_space_findings()
+    {
+        var probes = new[]
+        {
+            new ProbeSize(1, "WSL disks (anwar)", "glob", @"C:\Users\anwar\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu\LocalState", (long)(74.5 * Bytes.GB), 2 * Bytes.GB, 1_000, null),
+            new ProbeSize(2, "Docker (anwar)", "dir", @"C:\Users\anwar\AppData\Local\Docker", (long)(70.9 * Bytes.GB), 0, 1_000, null),
+            new ProbeSize(3, "Hibernation file", "file", @"C:\hiberfil.sys", (long)(6.3 * Bytes.GB), 0, 1_000, null),
+        };
+
+        var callout = ReclaimHints.VirtualDiskSummary(probes)!;
+
+        Assert.Equal("WSL and Docker virtual disks hold 145.4 GB (+2.0 GB)", callout.Headline);
+        Assert.Equal(2, callout.Probes.Count);
+        Assert.Equal(["wsl --shutdown", "docker system prune -a", "wsl --manage <distro> --set-sparse true"], callout.Steps.Select(s => s.Command));
+        Assert.Contains(".vhdx", callout.Explanation);
+    }
+
+    [Fact]
+    public void Virtual_disk_callout_surfaces_when_small_virtual_disk_grows_by_500_mb_or_more()
+    {
+        var growingWsl = new ProbeSize(1, "WSL disks (shado)", "glob", @"C:\Users\shado\wsl", 4 * Bytes.GB, 600 * Bytes.MB, 1_000, null);
+        var smallDocker = new ProbeSize(2, "Docker (shado)", "dir", @"C:\Users\shado\docker", 3 * Bytes.GB, 100 * Bytes.MB, 1_000, null);
+
+        var callout = ReclaimHints.VirtualDiskSummary([growingWsl, smallDocker])!;
+
+        Assert.Equal("WSL virtual disks hold 4.0 GB (+600 MB)", callout.Headline);
+        Assert.Equal(["wsl --shutdown", "wsl --manage <distro> --set-sparse true"], callout.Steps.Select(s => s.Command));
+    }
+
+    [Fact]
+    public void Virtual_disk_callout_is_null_when_virtual_disks_are_small_and_not_growing()
+    {
+        var probes = new[]
+        {
+            new ProbeSize(1, "WSL disks (shado)", "glob", @"C:\Users\shado\wsl", 3 * Bytes.GB, 100 * Bytes.MB, 1_000, null),
+            new ProbeSize(2, "Docker (shado)", "dir", @"C:\Users\shado\docker", 2 * Bytes.GB, null, 1_000, null),
+            new ProbeSize(3, "User Temp (shado)", "dir", @"C:\Users\shado\Temp", 25 * Bytes.GB, 5 * Bytes.GB, 1_000, null),
+        };
+
+        Assert.Null(ReclaimHints.VirtualDiskSummary(probes));
+    }
+
     private static ProbeMeasurement M(long gb) => new(gb * Bytes.GB, 1, 10, null);
 
     private static VolumeSample Sample(long ts, double freeGb) => new(ts, "C:", 100 * Bytes.GB, (long)(freeGb * Bytes.GB));

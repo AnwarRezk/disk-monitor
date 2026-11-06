@@ -4,7 +4,7 @@ This page records what diskdrift has found on real machines, and how to get the 
 
 ## 2026-11-04: WSL and Docker virtual disks (author's PC)
 
-The first Probe runs (DIS-12) totalled about 179 GB. The largest Probes were:
+The first Probe runs (DIS-12) totalled about 179 GB. Surfaced in the dashboard as the virtual-disk reclaim callout (DIS-17). The largest Probes were:
 
 | Probe | Size |
 |---|---|
