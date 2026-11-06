@@ -11,7 +11,14 @@ param(
     [string] $Version = '0.0.0',
 
     # ISCC.exe; found in the usual Inno Setup 6 folders when not given (winget install JRSoftware.InnoSetup).
-    [string] $Iscc
+    [string] $Iscc,
+
+    # Optional sign command template containing $f (e.g. 'signtool.exe sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 $f').
+    # Signs the published Collector and Tray binaries, the Inno Setup uninstaller, and the setup itself.
+    [string] $SignCommand,
+
+    [switch] $SkipPublish,
+    [switch] $SkipCompile
 )
 
 Set-StrictMode -Version Latest
@@ -26,28 +33,44 @@ function Invoke-Native {
     if ($LASTEXITCODE -ne 0) { throw "$What failed with exit code $LASTEXITCODE." }
 }
 
-if (-not $Iscc) {
-    $Iscc = @(
-        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
-    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $Iscc) { throw 'Inno Setup 6 not found. Install it (winget install JRSoftware.InnoSetup) or pass -Iscc.' }
-}
-
-foreach ($app in @(@{ Name = 'collector'; Project = 'src\DiskDrift.Collector\DiskDrift.Collector.csproj' },
-                   @{ Name = 'tray';      Project = 'src\DiskDrift.Tray\DiskDrift.Tray.csproj' })) {
-    $out = Join-Path $publish $app.Name
-    Write-Host "Publishing $($app.Name) $Version..."
-    if (Test-Path $out) { Remove-Item $out -Recurse -Force }
-    Invoke-Native "dotnet publish ($($app.Name))" {
-        dotnet publish (Join-Path $repoRoot $app.Project) -c Release -r win-x64 --self-contained -o $out --nologo `
-            "-p:Version=$Version"
+if (-not $SkipPublish) {
+    foreach ($app in @(@{ Name = 'collector'; Project = 'src\DiskDrift.Collector\DiskDrift.Collector.csproj'; Exe = 'DiskDrift.Collector.exe' },
+                       @{ Name = 'tray';      Project = 'src\DiskDrift.Tray\DiskDrift.Tray.csproj';           Exe = 'DiskDrift.Tray.exe' })) {
+        $out = Join-Path $publish $app.Name
+        Write-Host "Publishing $($app.Name) $Version..."
+        if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+        Invoke-Native "dotnet publish ($($app.Name))" {
+            dotnet publish (Join-Path $repoRoot $app.Project) -c Release -r win-x64 --self-contained -o $out --nologo `
+                "-p:Version=$Version"
+        }
+        if ($SignCommand) {
+            $exe = Join-Path $out $app.Exe
+            $cmd = $SignCommand.Replace('$f', "`"$exe`"")
+            Write-Host "Signing $exe..."
+            Invoke-Native "sign ($($app.Exe))" { cmd.exe /c $cmd }
+        }
     }
 }
 
-Write-Host "Compiling the setup with $Iscc..."
-Invoke-Native 'ISCC' { & $Iscc "/DAppVersion=$Version" "/DPublishDir=$publish" (Join-Path $PSScriptRoot 'DiskDrift.iss') }
+if (-not $SkipCompile) {
+    if (-not $Iscc) {
+        $Iscc = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+        ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $Iscc) { throw 'Inno Setup 6 not found. Install it (winget install JRSoftware.InnoSetup) or pass -Iscc.' }
+    }
 
-$setup = Join-Path $repoRoot "artifacts\installer\DiskDrift-Setup-$Version.exe"
-Write-Host "Built $setup"
+    Write-Host "Compiling the setup with $Iscc..."
+    $isccArgs = @("/DAppVersion=$Version", "/DPublishDir=$publish")
+    if ($SignCommand) {
+        $isccArgs += "/Ssign=$SignCommand"
+        $isccArgs += '/DSignCommand=1'
+    }
+    $isccArgs += (Join-Path $PSScriptRoot 'DiskDrift.iss')
+    Invoke-Native 'ISCC' { & $Iscc @isccArgs }
+
+    $setup = Join-Path $repoRoot "artifacts\installer\DiskDrift-Setup-$Version.exe"
+    Write-Host "Built $setup"
+}

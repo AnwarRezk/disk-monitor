@@ -73,6 +73,22 @@ public sealed class ProbeMeasurerTests : IDisposable
     }
 
     [Fact]
+    public void A_per_user_probe_sums_across_every_real_profile()
+    {
+        Write(Path.Combine("Users", "alice", "Temp", "a.bin"), 300);
+        Write(Path.Combine("Users", "bob", "Temp", "b.bin"), 450);
+        Write(Path.Combine("Users", "Public", "Temp", "ignored.bin"), 900);
+        var expander = new ProbeExpander(Path.Combine(_temp.Path, "Users"));
+        var probe = Assert.Single(expander.Expand([new ProbeDefinition { Name = "User Temp", Path = @"{user}\Temp" }]));
+
+        var m = ProbeMeasurer.Measure(probe, Generous, TestContext.Current.CancellationToken, expander);
+
+        Assert.Equal(750, m.SizeBytes);
+        Assert.Equal(2, m.FileCount);
+        Assert.Null(m.Error);
+    }
+
+    [Fact]
     public void A_junction_to_itself_is_not_followed_or_double_counted()
     {
         Write(Path.Combine("loop", "a.bin"), 123);

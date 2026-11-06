@@ -26,21 +26,33 @@ public static class ProbeMeasurer
         MatchType = MatchType.Simple,
     };
 
-    public static ProbeMeasurement Measure(ExpandedProbe probe, TimeSpan timeout, CancellationToken token = default)
+    public static ProbeMeasurement Measure(
+        ExpandedProbe probe,
+        TimeSpan timeout,
+        CancellationToken token = default,
+        ProbeExpander? expander = null)
     {
         var started = Stopwatch.GetTimestamp();
         var deadline = new Deadline(started, timeout, token);
         var total = new Total();
-        string? error;
+        string? error = null;
         try
         {
-            error = probe.Kind switch
+            var paths = probe.Path.Contains(ProbeDefinition.UserTemplate, StringComparison.OrdinalIgnoreCase)
+                ? (expander ?? new ProbeExpander(ProbeExpander.DefaultUsersRoot)).ExpandPaths(probe.Path)
+                : [probe.Path];
+            foreach (var path in paths)
             {
-                ProbeKind.Dir => ScanDirectory(probe.Path, deadline, total),
-                ProbeKind.File => SizeFile(probe.Path, total),
-                ProbeKind.Glob => MeasureGlob(probe.Path, deadline, total),
-                _ => throw new ArgumentException($"{probe.Kind} Probes are not measured on disk", nameof(probe)),
-            };
+                error = probe.Kind switch
+                {
+                    ProbeKind.Dir => ScanDirectory(path, deadline, total),
+                    ProbeKind.File => SizeFile(path, total),
+                    ProbeKind.Glob => MeasureGlob(path, deadline, total),
+                    _ => throw new ArgumentException($"{probe.Kind} Probes are not measured on disk", nameof(probe)),
+                };
+                if (error is not null)
+                    break;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

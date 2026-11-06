@@ -20,12 +20,15 @@ public sealed class ProbeExpander(string usersRoot)
     public string UsersRoot { get; } = usersRoot;
 
     /// <summary>
-    /// Every configured Probe with <c>{user}</c> replaced once per profile (named "Name (user)"), duplicates by
-    /// kind and path dropped. Separators are normalised so the same config works in tests on any OS.
+    /// Every configured Probe, with duplicates by kind and path dropped. Per-user Probes keep <c>{user}</c> in their
+    /// stored path (included when <see cref="UsersRoot"/> has at least one real profile) and are summed across all
+    /// profiles at measurement time so one user cannot read another user's folder sizes. Separators are normalised so
+    /// the same config works in tests on any OS.
     /// </summary>
     public IReadOnlyList<ExpandedProbe> Expand(IEnumerable<ProbeDefinition> definitions)
     {
         var profiles = UserProfiles();
+        var usersVolume = VolumeOf(UsersRoot);
         var seen = new HashSet<(ProbeKind, string)>(new KindPathComparer());
         var result = new List<ExpandedProbe>();
         foreach (var definition in definitions)
@@ -39,15 +42,15 @@ public sealed class ProbeExpander(string usersRoot)
 
             if (!definition.IsPerUser)
             {
-                Add(Concrete(definition.Name, definition.Kind, definition.Path));
+                var fixedPath = CleanPath(definition.Path);
+                Add(new ExpandedProbe(definition.Name, definition.Kind, fixedPath, VolumeOf(fixedPath)));
                 continue;
             }
 
-            foreach (var profile in profiles)
-            {
-                var path = definition.Path.Replace(ProbeDefinition.UserTemplate, profile, StringComparison.OrdinalIgnoreCase);
-                Add(Concrete($"{definition.Name} ({System.IO.Path.GetFileName(profile)})", definition.Kind, path));
-            }
+            if (profiles.Count == 0)
+                continue;
+
+            Add(new ExpandedProbe(definition.Name, definition.Kind, CleanPath(definition.Path), usersVolume));
         }
         return result;
 
@@ -56,6 +59,47 @@ public sealed class ProbeExpander(string usersRoot)
             if (seen.Add((probe.Kind, probe.Path)))
                 result.Add(probe);
         }
+    }
+
+    /// <summary>
+    /// Replaces <c>{user}</c> in <paramref name="path"/> once per folder in <see cref="UserProfiles"/>, or returns
+    /// <paramref name="path"/> alone when it is not a per-user template.
+    /// </summary>
+    public IReadOnlyList<string> ExpandPaths(string path)
+    {
+        path = CleanPath(path);
+        if (!path.Contains(ProbeDefinition.UserTemplate, StringComparison.OrdinalIgnoreCase))
+            return [path];
+
+        return UserProfiles()
+            .Select(profile => path.Replace(ProbeDefinition.UserTemplate, profile, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Replaces a <c>C:\Users\&lt;profile&gt;\…</c> prefix with <c>{user}\…</c> (leaving <see cref="ExcludedProfiles"/>
+    /// such as <c>Public</c> alone) so paths stored in the database do not expose local usernames.
+    /// </summary>
+    public static string? ToUserTemplate(string? path, string usersRoot = DefaultUsersRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+
+        var normPath = NormalizeSeparators(path.Trim());
+        var prefix = NormalizeSeparators(usersRoot.Trim()).TrimEnd(System.IO.Path.DirectorySeparatorChar)
+            + System.IO.Path.DirectorySeparatorChar;
+        if (!normPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return path;
+
+        var rest = normPath[prefix.Length..];
+        var sep = rest.IndexOf(System.IO.Path.DirectorySeparatorChar);
+        if (sep <= 0)
+            return path;
+
+        var profile = rest[..sep];
+        return ExcludedProfiles.Contains(profile)
+            ? path
+            : ProbeDefinition.UserTemplate + rest[sep..];
     }
 
     /// <summary>
@@ -107,12 +151,12 @@ public sealed class ProbeExpander(string usersRoot)
     internal static string NormalizeSeparators(string path) =>
         path.Replace('\\', System.IO.Path.DirectorySeparatorChar).Replace('/', System.IO.Path.DirectorySeparatorChar);
 
-    private static ExpandedProbe Concrete(string name, ProbeKind kind, string path)
+    private static string CleanPath(string path)
     {
         path = NormalizeSeparators(path.Trim());
         if (path.Length > 1)
             path = path.TrimEnd(System.IO.Path.DirectorySeparatorChar);
-        return new ExpandedProbe(name, kind, path, VolumeOf(path));
+        return path;
     }
 
     private static bool Exists(string path) => Directory.Exists(path) || File.Exists(path);

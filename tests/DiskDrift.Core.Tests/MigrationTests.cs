@@ -115,6 +115,65 @@ public sealed class MigrationTests : IDisposable
         Assert.Equal(Enumerable.Range(1, Migrator.All.Count), Migrator.All.Select(m => m.Version));
     }
 
+    [Fact]
+    public void Migration_0002_aggregates_per_user_probes_and_scrubs_usernames()
+    {
+        using var connection = OpenRaw(_temp.File("v1.db"));
+        connection.Execute("PRAGMA foreign_keys = ON;");
+        Migrator.Apply(connection, [Migrator.All[0]]);
+
+        connection.Execute(
+            """
+            INSERT INTO probes (id, name, kind, path, volume) VALUES
+            (1, 'User Temp (alice)', 'dir', 'C:\Users\alice\AppData\Local\Temp', 'C:'),
+            (2, 'User Temp (bob)', 'dir', 'C:\Users\bob\AppData\Local\Temp', 'C:'),
+            (3, 'Windows Temp', 'dir', 'C:\Windows\Temp', 'C:');
+            INSERT INTO probe_samples (ts, probe_id, size_bytes, file_count, duration_ms, error) VALUES
+            (1000, 1, 200, 2, 10, NULL),
+            (1000, 2, 300, 5, 15, NULL),
+            (1000, 3, 50, 1, 5, NULL);
+            INSERT INTO processes (id, name, exe_path) VALUES
+            (1, 'Code.exe', 'C:\Users\alice\AppData\Local\Programs\Microsoft VS Code\Code.exe'),
+            (2, 'Code.exe', 'C:\Users\bob\AppData\Local\Programs\Microsoft VS Code\Code.exe');
+            INSERT INTO process_io_samples (ts, process_id, write_bytes_delta, read_bytes_delta) VALUES
+            (1000, 1, 100, 10),
+            (2000, 2, 250, 20);
+            INSERT INTO swings (id, volume, kind, stage, ts_start, ts_end) VALUES
+            (1, 'C:', 'growth', 'closed', 500, 1500);
+            INSERT INTO swing_items (swing_id, source, label, path, delta_bytes, rank) VALUES
+            (1, 'probe', 'User Temp (alice)', 'C:\Users\alice\AppData\Local\Temp', 200, 1),
+            (1, 'process', 'Code.exe', 'C:\Users\alice\AppData\Local\Programs\Microsoft VS Code\Code.exe', 100, 1);
+            """);
+
+        Migrator.Apply(connection, Migrator.All);
+
+        var probes = connection.Query<(string Name, string Path, long Size, long? Files)>(
+            """
+            SELECT p.name, p.path, s.size_bytes, s.file_count
+            FROM probes p JOIN probe_samples s ON s.probe_id = p.id
+            ORDER BY p.name
+            """).ToArray();
+        Assert.Equal(
+            [
+                ("User Temp", @"{user}\AppData\Local\Temp", 500L, (long?)7),
+                ("Windows Temp", @"C:\Windows\Temp", 50L, (long?)1),
+            ],
+            probes);
+
+        var processes = connection.Query<(string Name, string? ExePath)>(
+            "SELECT name, exe_path FROM processes").ToArray();
+        Assert.Equal([("Code.exe", @"{user}\AppData\Local\Programs\Microsoft VS Code\Code.exe")], processes);
+
+        var items = connection.Query<(string Source, string Label, string? Path)>(
+            "SELECT source, label, path FROM swing_items ORDER BY source").ToArray();
+        Assert.Equal(
+            [
+                ("probe", "User Temp", @"{user}\AppData\Local\Temp"),
+                ("process", "Code.exe", @"{user}\AppData\Local\Programs\Microsoft VS Code\Code.exe"),
+            ],
+            items);
+    }
+
     private static SqliteConnection OpenRaw(string path)
     {
         var connection = new SqliteConnection($"Data Source={path}");

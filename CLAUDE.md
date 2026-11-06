@@ -52,12 +52,12 @@ Swing attribution: probe deltas use the nearest sample ≤ `ts_start` and ≥ `t
 
 ## Gotchas
 
-- The collector runs as SYSTEM, so `%LOCALAPPDATA%` etc. resolve to the system profile. Per-user probes use `{user}` templates expanded over `C:\Users\*` (excluding `Default`, `Default User`, `Public`, `All Users`) by `ProbeExpander`.
+- The collector runs as SYSTEM, so `%LOCALAPPDATA%` etc. resolve to the system profile. Per-user probes use `{user}` templates expanded over `C:\Users\*` (excluding `Default`, `Default User`, `Public`, `All Users`) by `ProbeExpander` and summed into one `{user}\…` row per Probe definition (`OpenLocation` expands `{user}` to the signed-in user's profile).
 - Directory scans must skip reparse points (`AttributesToSkip = ReparsePoint`, `IgnoreInaccessible = true`) and honour a per-probe timeout (keep the partial size). Never scan all of `C:\`; WinSxS is deliberately not a probe.
 - `pagefile.sys`/`hiberfil.sys`/`swapfile.sys` can't be opened; read sizes from the directory entry (`DirectoryInfo("C:\\").EnumerateFiles(name)`).
 - `ProcessIoSampler` keys previous counters by `(pid, start_time)` to survive PID reuse. Its counters include non-disk I/O; present them as a ranking signal, not bytes on disk.
 - SQLite: WAL, `busy_timeout=5000`, single writer. A read-only WAL reader needs the `-wal`/`-shm` files the Collector keeps alive, hence the Tray's immutable fallback.
-- Per-user Probes cover every profile and the DB is world-readable: a known privacy gap to fix before distributing.
+- Per-user Probes and process paths under `C:\Users\<name>` are stored with `{user}` template paths (migration `0002`), so the world-readable DB never exposes local usernames or another user's individual folder sizes.
 - DiskDrift must not cause disk growth itself: Serilog capped at 7 files × 10 MB in `%ProgramData%\DiskDrift\logs`, DB retention enforced, target < ~50 MB/month DB growth.
 - VSS, WMI and all-process I/O counters require admin; run the collector elevated during development.
 

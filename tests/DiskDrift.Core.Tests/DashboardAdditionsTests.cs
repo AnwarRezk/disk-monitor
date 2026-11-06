@@ -21,7 +21,7 @@ public sealed class DashboardAdditionsTests : IDisposable
         var ids = ProbeStore.Upsert(connection,
         [
             new ExpandedProbe("Temp", ProbeKind.Dir, @"C:\Temp", "C:"),
-            new ExpandedProbe("WSL disks (shado)", ProbeKind.Glob, @"C:\Users\shado\wsl\*", "C:"),
+            new ExpandedProbe("WSL disks", ProbeKind.Glob, @"{user}\wsl\*", "C:"),
             new ExpandedProbe("New", ProbeKind.Dir, @"C:\New", "C:"),
             new ExpandedProbe("Other drive", ProbeKind.Dir, @"D:\Data", "D:"),
         ]);
@@ -32,7 +32,7 @@ public sealed class DashboardAdditionsTests : IDisposable
 
         var sizes = ProbeReads.Sizes(connection, "c:", 2_000, 6_000);
 
-        Assert.Equal(["WSL disks (shado)", "Temp", "New"], sizes.Select(s => s.Name));
+        Assert.Equal(["WSL disks", "Temp", "New"], sizes.Select(s => s.Name));
         Assert.Equal([68 * Bytes.GB, 9 * Bytes.GB, 3 * Bytes.GB], sizes.Select(s => s.SizeBytes));
         // WSL and Temp compare with the sample before the range; New only has history inside it.
         Assert.Equal([-2 * Bytes.GB, 4 * Bytes.GB, 1 * Bytes.GB], sizes.Select(s => s.ChangeBytes));
@@ -128,9 +128,9 @@ public sealed class DashboardAdditionsTests : IDisposable
     }
 
     [Theory]
-    [InlineData("WSL disks (shado)", "wsl --manage <distro> --set-sparse true")]
-    [InlineData("Docker (shado)", "docker system prune -a")]
-    [InlineData("npm cache (anwar)", "npm cache clean --force")]
+    [InlineData("WSL disks", "wsl --manage <distro> --set-sparse true")]
+    [InlineData("Docker (alex)", "docker system prune -a")]
+    [InlineData("npm cache (alex)", "npm cache clean --force")]
     [InlineData("Recycle Bin", "Clear-RecycleBin -Force")]
     public void Reclaim_hints_match_the_configured_name_ignoring_the_user(string probe, string command) =>
         Assert.Equal(command, ReclaimHints.For(probe)!.Command);
@@ -139,7 +139,7 @@ public sealed class DashboardAdditionsTests : IDisposable
     public void Probes_without_a_safe_command_get_a_note_and_unknown_probes_get_nothing()
     {
         Assert.Null(ReclaimHints.For("Page file")!.Command);
-        Assert.NotEmpty(ReclaimHints.For("Downloads (shado)")!.Note);
+        Assert.NotEmpty(ReclaimHints.For("Downloads")!.Note);
         Assert.Null(ReclaimHints.For("My own folder"));
     }
 
@@ -148,8 +148,8 @@ public sealed class DashboardAdditionsTests : IDisposable
     {
         var probes = new[]
         {
-            new ProbeSize(1, "WSL disks (anwar)", "glob", @"C:\Users\anwar\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu\LocalState", (long)(74.5 * Bytes.GB), 2 * Bytes.GB, 1_000, null),
-            new ProbeSize(2, "Docker (anwar)", "dir", @"C:\Users\anwar\AppData\Local\Docker", (long)(70.9 * Bytes.GB), 0, 1_000, null),
+            new ProbeSize(1, "WSL disks", "glob", @"{user}\AppData\Local\Packages\*CanonicalGroup*\LocalState", (long)(74.5 * Bytes.GB), 2 * Bytes.GB, 1_000, null),
+            new ProbeSize(2, "Docker", "dir", @"{user}\AppData\Local\Docker", (long)(70.9 * Bytes.GB), 0, 1_000, null),
             new ProbeSize(3, "Hibernation file", "file", @"C:\hiberfil.sys", (long)(6.3 * Bytes.GB), 0, 1_000, null),
         };
 
@@ -164,8 +164,8 @@ public sealed class DashboardAdditionsTests : IDisposable
     [Fact]
     public void Virtual_disk_callout_surfaces_when_small_virtual_disk_grows_by_500_mb_or_more()
     {
-        var growingWsl = new ProbeSize(1, "WSL disks (shado)", "glob", @"C:\Users\shado\wsl", 4 * Bytes.GB, 600 * Bytes.MB, 1_000, null);
-        var smallDocker = new ProbeSize(2, "Docker (shado)", "dir", @"C:\Users\shado\docker", 3 * Bytes.GB, 100 * Bytes.MB, 1_000, null);
+        var growingWsl = new ProbeSize(1, "WSL disks", "glob", @"{user}\wsl", 4 * Bytes.GB, 600 * Bytes.MB, 1_000, null);
+        var smallDocker = new ProbeSize(2, "Docker", "dir", @"{user}\docker", 3 * Bytes.GB, 100 * Bytes.MB, 1_000, null);
 
         var callout = ReclaimHints.VirtualDiskSummary([growingWsl, smallDocker])!;
 
@@ -178,9 +178,9 @@ public sealed class DashboardAdditionsTests : IDisposable
     {
         var probes = new[]
         {
-            new ProbeSize(1, "WSL disks (shado)", "glob", @"C:\Users\shado\wsl", 3 * Bytes.GB, 100 * Bytes.MB, 1_000, null),
-            new ProbeSize(2, "Docker (shado)", "dir", @"C:\Users\shado\docker", 2 * Bytes.GB, null, 1_000, null),
-            new ProbeSize(3, "User Temp (shado)", "dir", @"C:\Users\shado\Temp", 25 * Bytes.GB, 5 * Bytes.GB, 1_000, null),
+            new ProbeSize(1, "WSL disks", "glob", @"{user}\wsl", 3 * Bytes.GB, 100 * Bytes.MB, 1_000, null),
+            new ProbeSize(2, "Docker", "dir", @"{user}\docker", 2 * Bytes.GB, null, 1_000, null),
+            new ProbeSize(3, "User Temp", "dir", @"{user}\Temp", 25 * Bytes.GB, 5 * Bytes.GB, 1_000, null),
         };
 
         Assert.Null(ReclaimHints.VirtualDiskSummary(probes));

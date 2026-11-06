@@ -21,10 +21,10 @@ public sealed class ProbeSampler(
     TimeProvider time,
     ILogger<ProbeSampler> logger) : BackgroundService
 {
+    private static readonly ProbeExpander Expander = new(ProbeExpander.DefaultUsersRoot);
     private readonly SingleFlight<ProbeRunSummary> _flight = new();
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly ProbeExpander _expander = new(ProbeExpander.DefaultUsersRoot);
-    private readonly ProbeRunner _runner = new(shadowStorage, TimeSpan.FromSeconds(options.Intervals.ProbeTimeoutSeconds));
+    private readonly ProbeRunner _runner = new(shadowStorage, TimeSpan.FromSeconds(options.Intervals.ProbeTimeoutSeconds), expander: Expander);
 
     /// <summary>
     /// Raised on the run's thread once a run's Probe Samples are stored, whoever started it (schedule, pipe or
@@ -80,7 +80,7 @@ public sealed class ProbeSampler(
         var ts = time.GetUtcNow().ToUnixTimeMilliseconds();
         var started = time.GetTimestamp();
 
-        var probes = _expander.Expand(options.Probes);
+        var probes = Expander.Expand(options.Probes);
         IReadOnlyList<long> ids;
         using (var connection = db.OpenConnection())
             ids = ProbeStore.Upsert(connection, probes);

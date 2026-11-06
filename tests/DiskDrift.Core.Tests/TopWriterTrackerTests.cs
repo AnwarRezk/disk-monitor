@@ -1,4 +1,5 @@
 using DiskDrift.Core.Analysis;
+using DiskDrift.Core.Probes;
 
 namespace DiskDrift.Core.Tests;
 
@@ -152,5 +153,24 @@ public sealed class TopWriterTrackerTests
         Assert.Equal(
             [(@"C:\A\app.exe", 5 * MB), (@"C:\B\app.exe", 4 * MB), (null, 2 * MB)],
             writers.Select(w => (w.ExePath, w.WriteBytes)));
+    }
+
+    [Fact]
+    public void A_process_under_a_user_profile_uses_the_user_template_and_sums_across_profiles()
+    {
+        ProcessIoSnapshot At(int pid, string exePath, long write) =>
+            new(new ProcessKey(pid, 0), "Code.exe", exePath, 0, (ulong)write);
+
+        Next(T0,
+            At(1, @"C:\Users\alice\AppData\Local\Programs\Microsoft VS Code\Code.exe", 0),
+            At(2, @"C:\Users\bob\AppData\Local\Programs\Microsoft VS Code\Code.exe", 0));
+
+        var writer = Assert.Single(Next(T1,
+            At(1, @"C:\Users\alice\AppData\Local\Programs\Microsoft VS Code\Code.exe", 3 * MB),
+            At(2, @"C:\Users\bob\AppData\Local\Programs\Microsoft VS Code\Code.exe", 4 * MB)));
+
+        Assert.Equal(
+            new ProcessIoDelta("Code.exe", ProbeExpander.NormalizeSeparators(@"{user}\AppData\Local\Programs\Microsoft VS Code\Code.exe"), 7 * MB, 0),
+            writer);
     }
 }

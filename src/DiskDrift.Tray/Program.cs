@@ -7,14 +7,17 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        // --screenshot <folder> opens only the dashboard, saves a PNG per range and size there, and exits. It skips the
-        // single-instance check and the tray icon, so it runs beside the installed tray (used to review the UI).
+        // --screenshot <folder> opens only the dashboard, saves a PNG per range and size there, and exits. By default it
+        // renders a seeded synthetic database with no personal paths; pass --live to use the local machine's database.
         var shotAt = Array.FindIndex(args, a => a.Equals("--screenshot", StringComparison.OrdinalIgnoreCase));
         if (shotAt >= 0)
         {
-            var folder = shotAt + 1 < args.Length ? args[shotAt + 1] : Path.Combine(Environment.CurrentDirectory, "screenshots");
+            var folder = shotAt + 1 < args.Length && !args[shotAt + 1].StartsWith("--", StringComparison.Ordinal)
+                ? args[shotAt + 1]
+                : Path.Combine(Environment.CurrentDirectory, "screenshots");
+            var useLive = args.Any(a => a.Equals("--live", StringComparison.OrdinalIgnoreCase));
             ApplicationConfiguration.Initialize();
-            Application.Run(Dashboard.DashboardForm.ForScreenshots(TrayConfig.Load().Options, folder));
+            Application.Run(Dashboard.DashboardForm.ForScreenshots(TrayConfig.Load().Options, folder, useLive));
             return;
         }
 

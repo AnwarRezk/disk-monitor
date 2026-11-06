@@ -42,6 +42,7 @@ internal sealed class DashboardForm : Form
     private readonly PipeClient _pipe;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly bool _persist;
+    private bool _syntheticDemo;
     private readonly ToolTip _tips = new() { InitialDelay = 300 };
 
     // Header band
@@ -178,7 +179,8 @@ internal sealed class DashboardForm : Form
     {
         base.OnShown(e);
         ApplyProportions();
-        await ReloadAsync();
+        if (!_syntheticDemo)
+            await ReloadAsync();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -210,10 +212,14 @@ internal sealed class DashboardForm : Form
     // ---------------------------------------------------------------- screenshots (--screenshot)
 
     /// <summary>A dashboard that, once shown, saves screenshots to <paramref name="folder"/> and closes.</summary>
-    public static DashboardForm ForScreenshots(DiskDriftOptions options, string folder)
+    public static DashboardForm ForScreenshots(DiskDriftOptions options, string folder, bool useLive = false)
     {
+        var dbPath = useLive ? options.DatabasePath : DemoDatabase.Create(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         var volume = options.Volumes.Contains(DiskDriftOptions.DefaultVolume) ? DiskDriftOptions.DefaultVolume : options.Volumes[0];
-        var form = new DashboardForm(new DashboardLoader(new ReadOnlyDb(options.DatabasePath), options), new PipeClient(), volume, persist: false);
+        var form = new DashboardForm(new DashboardLoader(new ReadOnlyDb(dbPath), options), new PipeClient(), volume, persist: false)
+        {
+            _syntheticDemo = !useLive,
+        };
         form.Shown += async (_, _) =>
         {
             try
@@ -223,6 +229,11 @@ internal sealed class DashboardForm : Form
             finally
             {
                 form.Close();
+                if (!useLive && Path.GetDirectoryName(dbPath) is { } tempDir)
+                {
+                    try { Directory.Delete(tempDir, recursive: true); }
+                    catch (IOException) { }
+                }
             }
         };
         return form;
@@ -279,6 +290,12 @@ internal sealed class DashboardForm : Form
             catch (System.ComponentModel.Win32Exception)
             {
                 DrawToBitmap(shot, new Rectangle(Point.Empty, Size));
+                if (_drawer.Visible)
+                {
+                    // DrawToBitmap renders container children in reverse Z-order, so draw the overlay drawer on top.
+                    var clientOffset = PointToScreen(Point.Empty) - (Size)Location;
+                    _drawer.DrawToBitmap(shot, new Rectangle(clientOffset.X + _drawer.Left, clientOffset.Y + _drawer.Top, _drawer.Width, _drawer.Height));
+                }
             }
             var name = max ? "max" : $"{size.Width}x{size.Height}";
             shot.Save(Path.Combine(folder, $"dashboard-{range.Label()}-{tab}-{name}.png"), System.Drawing.Imaging.ImageFormat.Png);
@@ -373,7 +390,6 @@ internal sealed class DashboardForm : Form
         Controls.Add(BuildHeader());
         Controls.Add(_footer);
         Controls.Add(_drawer);
-        _drawer.BringToFront();
         root.SizeChanged += (_, _) => ApplyProportions();
     }
 
@@ -1092,6 +1108,8 @@ internal sealed class DashboardForm : Form
 
     private async Task<PipeResponse?> PingAsync()
     {
+        if (_syntheticDemo)
+            return new PipeResponse(true, Version: "0.1.0", LastSampleTs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 8_000);
         try
         {
             return await _pipe.PingAsync();
@@ -1159,16 +1177,19 @@ internal sealed class DashboardForm : Form
     }
 
     /// <summary><c>C:  Windows</c> with the drive's own label, <c>C:  System</c> for the Windows drive, else the letter.</summary>
-    private static string VolumeLabel(string volume)
+    private string VolumeLabel(string volume)
     {
-        try
+        if (!_syntheticDemo)
         {
-            var label = new DriveInfo(volume).VolumeLabel;
-            if (!string.IsNullOrWhiteSpace(label))
-                return $"{volume}  {label}";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
+            try
+            {
+                var label = new DriveInfo(volume).VolumeLabel;
+                if (!string.IsNullOrWhiteSpace(label))
+                    return $"{volume}  {label}";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+            }
         }
         var system = Path.GetPathRoot(Environment.SystemDirectory)?.TrimEnd('\\');
         return string.Equals(system, volume, StringComparison.OrdinalIgnoreCase) ? $"{volume}  System" : volume;
@@ -1699,6 +1720,7 @@ internal sealed class DashboardForm : Form
         {
             PlaceDrawer();
             _drawer.Visible = true;
+            _drawer.SendToBack();
             _drawer.BringToFront();
         }
         var kept = same && _itemList.SelectedItems.Count > 0 ? _itemList.SelectedItems[0].SubItems[1].Text + "|" + _itemList.SelectedItems[0].SubItems[0].Text : null;
@@ -1884,8 +1906,9 @@ internal sealed class DashboardForm : Form
         try
         {
             Process.Start(new ProcessStartInfo("explorer.exe", target.Arguments) { UseShellExecute = true })?.Dispose();
-            if (!string.Equals(target.Path.TrimEnd('\\'), path.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
-                _footer.Text = $"{path} isn't there any more (or isn't readable from your account): opened {target.Path}";
+            var expanded = OpenLocation.ExpandUser(path);
+            if (!string.Equals(target.Path.TrimEnd('\\'), expanded.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                _footer.Text = $"{expanded} isn't there any more (or isn't readable from your account): opened {target.Path}";
         }
         catch (System.ComponentModel.Win32Exception ex)
         {

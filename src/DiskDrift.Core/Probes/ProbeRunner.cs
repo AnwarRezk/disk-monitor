@@ -9,7 +9,11 @@ public sealed record ProbeResult(ExpandedProbe Probe, ProbeMeasurement Measureme
 /// Measures a list of Probes, a few at a time so a slow one (each stops at its own timeout) does not hold up the
 /// rest. VSS shadow storage is read once per run for all vss Probes.
 /// </summary>
-public sealed class ProbeRunner(IShadowStorageReader shadowStorage, TimeSpan probeTimeout, int maxParallel = 2)
+public sealed class ProbeRunner(
+    IShadowStorageReader shadowStorage,
+    TimeSpan probeTimeout,
+    int maxParallel = 2,
+    ProbeExpander? expander = null)
 {
     public async Task<IReadOnlyList<ProbeResult>> RunAsync(IReadOnlyList<ExpandedProbe> probes, CancellationToken token)
     {
@@ -22,7 +26,7 @@ public sealed class ProbeRunner(IShadowStorageReader shadowStorage, TimeSpan pro
             (i, ct) =>
             {
                 var probe = probes[i];
-                results[i] = probe.Kind == ProbeKind.Vss ? vss.Value(probe.Volume) : ProbeMeasurer.Measure(probe, probeTimeout, ct);
+                results[i] = probe.Kind == ProbeKind.Vss ? vss.Value(probe.Volume) : ProbeMeasurer.Measure(probe, probeTimeout, ct, expander);
                 return ValueTask.CompletedTask;
             });
 

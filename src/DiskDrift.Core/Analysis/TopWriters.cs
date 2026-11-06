@@ -1,3 +1,5 @@
+using DiskDrift.Core.Probes;
+
 namespace DiskDrift.Core.Analysis;
 
 /// <summary>
@@ -64,10 +66,11 @@ public sealed class TopWriterTracker
                 continue;
             }
 
-            var program = (s.Name, s.ExePath);
+            var exePath = ProbeExpander.ToUserTemplate(s.ExePath);
+            var program = (s.Name, exePath);
             programs[program] = programs.TryGetValue(program, out var sum)
                 ? sum with { WriteBytes = Add(sum.WriteBytes, write), ReadBytes = Add(sum.ReadBytes, read) }
-                : new ProcessIoDelta(s.Name, s.ExePath, Clamp(write), Clamp(read));
+                : new ProcessIoDelta(s.Name, exePath, Clamp(write), Clamp(read));
         }
 
         _previous = current;

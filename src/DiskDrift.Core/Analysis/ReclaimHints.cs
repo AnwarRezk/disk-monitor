@@ -129,7 +129,7 @@ public static partial class ReclaimHints
         return new VirtualDiskCallout(matching, totalBytes, totalChange, headline, explanation, steps);
     }
 
-    /// <summary>"User Temp (shado)" → "User Temp".</summary>
+    /// <summary>"User Temp (alex)" → "User Temp".</summary>
     public static string BaseName(string probeName) => UserSuffix().Replace(probeName.Trim(), "");
 
     [GeneratedRegex(@"\s*\([^()]*\)$")]

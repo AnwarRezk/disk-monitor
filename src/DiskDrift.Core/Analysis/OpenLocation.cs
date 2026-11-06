@@ -1,3 +1,5 @@
+using DiskDrift.Core.Config;
+
 namespace DiskDrift.Core.Analysis;
 
 /// <summary>What Explorer should show: a folder opened, or a file selected in its folder.</summary>
@@ -10,15 +12,20 @@ public sealed record ExplorerTarget(string Path, bool SelectFile)
 /// <summary>
 /// Resolves a Swing item's path for "Open location" (PLAN §5.6): an existing file is selected, a folder is opened,
 /// and a path that no longer exists falls back to its nearest existing parent. Glob paths fall back the same way
-/// (a wildcard segment never exists). The file system is passed in, so this stays pure.
+/// (a wildcard segment never exists). Per-user <c>{user}</c> templates resolve to the signed-in user's profile.
+/// The file system is passed in, so this stays pure.
 /// </summary>
 public static class OpenLocation
 {
-    public static ExplorerTarget? Resolve(string? path, Func<string, bool> fileExists, Func<string, bool> directoryExists)
+    public static ExplorerTarget? Resolve(
+        string? path,
+        Func<string, bool> fileExists,
+        Func<string, bool> directoryExists,
+        string? userProfile = null)
     {
         if (string.IsNullOrWhiteSpace(path))
             return null;
-        var current = path.Trim().TrimEnd('\\', '/');
+        var current = ExpandUser(path.Trim(), userProfile).TrimEnd('\\', '/');
         // "C:" alone (the VSS Probe's path) means the drive's current folder to Windows: open its root instead.
         if (current.Length == 2 && current[1] == ':')
             current += "\\";
@@ -32,6 +39,17 @@ public static class OpenLocation
             current = Parent(current);
         }
         return null;
+    }
+
+    /// <summary>Replaces <c>{user}</c> in <paramref name="path"/> with the signed-in user's profile folder.</summary>
+    public static string ExpandUser(string path, string? userProfile = null)
+    {
+        if (!path.Contains(ProbeDefinition.UserTemplate, StringComparison.OrdinalIgnoreCase))
+            return path;
+        var profile = (userProfile ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)).Trim().TrimEnd('\\', '/');
+        return string.IsNullOrEmpty(profile)
+            ? path
+            : path.Replace(ProbeDefinition.UserTemplate, profile, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Parent(string path)

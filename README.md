@@ -126,13 +126,18 @@ dotnet run --project src/DiskDrift.Tray          # Tray (normal terminal)
 .\scripts\simulate-growth.ps1 -SizeGB 2 -Location temp -Cleanup   # make a test Swing (admin)
 ```
 
-`DiskDrift.Tray.exe --screenshot <folder>` saves the dashboard at every range and size, which is handy when reviewing UI
-changes. Contributor notes are in [CLAUDE.md](CLAUDE.md).
+`DiskDrift.Tray.exe --screenshot <folder>` saves the dashboard at every range and size using a seeded synthetic database
+(pass `--live` to use the local database), which is handy when reviewing UI changes. Contributor notes are in
+[CLAUDE.md](CLAUDE.md).
 
-## Privacy
+## Privacy and code signing
 
-The Collector measures every user profile's Probes, and the database is readable by all local users. That's fine on a
-personal machine; keep it in mind on a shared one.
+ DiskDrift runs locally and makes no network requests. The Collector sums per-user Probes across profiles under a single
+`{user}\…` template path (which resolves to the signed-in user's profile when you click **Open location**), so local
+usernames and another user's individual folder sizes are never written to `diskdrift.db`.
+
+Free code signing is provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/). See [SIGNING.md](SIGNING.md) for the code-signing and privacy policy.
 
 ## License
 

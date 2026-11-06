@@ -64,14 +64,50 @@ jobs:
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
 
+      - name: Publish the apps
+        run: installer/build.ps1 -Version ${{ steps.version.outputs.version }} -SkipCompile
+
+      - name: Upload unsigned apps for signing
+        id: upload-unsigned-apps
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-apps-${{ steps.version.outputs.version }}
+          path: artifacts/publish
+
+      - name: Sign the apps with SignPath
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'diskdrift' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-unsigned-apps.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: artifacts/publish
+
       - name: Build the setup
-        run: installer/build.ps1 -Version ${{ steps.version.outputs.version }}
+        run: installer/build.ps1 -Version ${{ steps.version.outputs.version }} -SkipPublish
 
       - name: Upload the setup
+        id: upload-setup
         uses: actions/upload-artifact@v4
         with:
           name: DiskDrift-Setup-${{ steps.version.outputs.version }}
           path: artifacts/installer/DiskDrift-Setup-*.exe
+
+      - name: Sign the setup with SignPath
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'diskdrift' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: artifacts/installer
 
       - name: Publish the release
         if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'

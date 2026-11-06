@@ -22,7 +22,7 @@ public sealed class ProbeExpanderTests : IDisposable
     private string User(string name, params string[] rest) => Path.Combine([_users, name, .. rest]);
 
     [Fact]
-    public void User_template_expands_over_real_profiles_only()
+    public void User_template_expands_over_real_profiles_only_and_keeps_one_probe_row()
     {
         var expander = new ProbeExpander(_users);
 
@@ -32,10 +32,15 @@ public sealed class ProbeExpanderTests : IDisposable
 
         Assert.Equal(
             [
-                new ExpandedProbe("User Temp (alice)", ProbeKind.Dir, User("alice", "AppData", "Local", "Temp"), ProbeExpander.VolumeOf(_users)),
-                new ExpandedProbe("User Temp (Bob)", ProbeKind.Dir, User("Bob", "AppData", "Local", "Temp"), ProbeExpander.VolumeOf(_users)),
+                new ExpandedProbe("User Temp", ProbeKind.Dir, ProbeExpander.NormalizeSeparators(@"{user}\AppData\Local\Temp"), ProbeExpander.VolumeOf(_users)),
             ],
             probes);
+        Assert.Equal(
+            [
+                User("alice", "AppData", "Local", "Temp"),
+                User("Bob", "AppData", "Local", "Temp"),
+            ],
+            expander.ExpandPaths(probes[0].Path));
     }
 
     [Fact]
@@ -72,17 +77,18 @@ public sealed class ProbeExpanderTests : IDisposable
         Directory.CreateDirectory(User("alice", "AppData", "Local", "Packages", "Microsoft.Other", "LocalState"));
         Directory.CreateDirectory(User("alice", "AppData", "Local", "Packages", "CanonicalGroupNoState"));
 
-        var probe = Assert.Single(new ProbeExpander(_users).Expand(
-            [new ProbeDefinition { Name = "WSL disks", Kind = ProbeKind.Glob, Path = @"{user}\AppData\Local\Packages\*CanonicalGroup*\LocalState" }]),
-            p => p.Name == "WSL disks (alice)");
+        var expander = new ProbeExpander(_users);
+        var probe = Assert.Single(expander.Expand(
+            [new ProbeDefinition { Name = "WSL disks", Kind = ProbeKind.Glob, Path = @"{user}\AppData\Local\Packages\*CanonicalGroup*\LocalState" }]));
 
+        Assert.Equal("WSL disks", probe.Name);
         Assert.Equal(ProbeKind.Glob, probe.Kind);
         Assert.Equal(
             [
                 User("alice", "AppData", "Local", "Packages", "canonicalgroup.Debian_x", "LocalState"),
                 User("alice", "AppData", "Local", "Packages", "CanonicalGroupLimited.Ubuntu_79rhkp1fndgsc", "LocalState"),
             ],
-            ProbeExpander.ResolveGlob(probe.Path));
+            expander.ExpandPaths(probe.Path).SelectMany(ProbeExpander.ResolveGlob));
     }
 
     [Fact]
@@ -96,14 +102,24 @@ public sealed class ProbeExpanderTests : IDisposable
     }
 
     [Fact]
-    public void The_default_config_expands_every_per_user_probe_for_each_profile()
+    public void The_default_config_keeps_one_probe_per_definition_without_exposing_usernames()
     {
         var defaults = OptionsTests.BindShippedAppSettings().Probes;
         var probes = new ProbeExpander(_users).Expand(defaults);
 
-        var perUser = defaults.Count(d => d.IsPerUser);
-        Assert.Equal(defaults.Count - perUser + 2 * perUser, probes.Count);
-        Assert.DoesNotContain(probes, p => p.Path.Contains("{user}", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(probes, p => p.Name.Contains("(Public)") || p.Name.Contains("(Default"));
+        Assert.Equal(defaults.Count, probes.Count);
+        Assert.DoesNotContain(probes, p => p.Name.Contains("(alice)", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("(Bob)", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(probes, p => p.Path.Contains("alice", StringComparison.OrdinalIgnoreCase) || p.Path.Contains("Bob", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void To_user_template_replaces_real_profile_prefixes_and_leaves_excluded_or_system_paths_alone()
+    {
+        Assert.Equal(
+            @"{user}\AppData\Local\Programs\App.exe",
+            ProbeExpander.ToUserTemplate(@"C:\Users\alice\AppData\Local\Programs\App.exe")?.Replace('/', '\\'));
+        Assert.Equal(@"C:\Users\Public\Desktop\App.exe", ProbeExpander.ToUserTemplate(@"C:\Users\Public\Desktop\App.exe"));
+        Assert.Equal(@"C:\Program Files\App\App.exe", ProbeExpander.ToUserTemplate(@"C:\Program Files\App\App.exe"));
+        Assert.Null(ProbeExpander.ToUserTemplate(null));
     }
 }

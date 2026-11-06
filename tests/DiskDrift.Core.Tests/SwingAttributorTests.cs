@@ -26,7 +26,7 @@ public sealed class SwingAttributorTests : IDisposable
         using var connection = _db.OpenConnection();
         _probeIds = ProbeStore.Upsert(connection,
         [
-            new ExpandedProbe("User Temp (anwar)", ProbeKind.Dir, @"C:\Users\anwar\AppData\Local\Temp", "C:"),
+            new ExpandedProbe("User Temp", ProbeKind.Dir, @"{user}\AppData\Local\Temp", "C:"),
             new ExpandedProbe("Windows Temp", ProbeKind.Dir, @"C:\Windows\Temp", "C:"),
             new ExpandedProbe("D: data", ProbeKind.Dir, @"D:\Data", "D:"),
         ]);
@@ -77,7 +77,7 @@ public sealed class SwingAttributorTests : IDisposable
             Row(id));
         Assert.Equal(
             [
-                new SwingItem("probe", "User Temp (anwar)", @"C:\Users\anwar\AppData\Local\Temp", 2 * Gb),
+                new SwingItem("probe", "User Temp", @"{user}\AppData\Local\Temp", 2 * Gb),
                 new SwingItem("process", "fsutil.exe", @"C:\Windows\System32\fsutil.exe", 2 * Gb),
             ],
             _swings.Items(id));

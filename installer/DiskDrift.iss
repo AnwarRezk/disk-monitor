@@ -40,6 +40,10 @@ SolidCompression=yes
 ; service.ps1 stops the service and every Tray itself; the Restart Manager would only ask about the Trays.
 CloseApplications=no
 RestartApplications=no
+#ifdef SignCommand
+SignTool=sign $f
+SignedUninstaller=yes
+#endif
 
 [Tasks]
 Name: desktopicon; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
