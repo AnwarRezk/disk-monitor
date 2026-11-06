@@ -30,12 +30,17 @@ internal sealed class DashboardForm : Form
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(30);
     private const string SpaceTab = "space", SwingsTab = "swings", WritersTab = "writers";
-    private const int HeaderHeight = 60;
-    private const int SummaryHeight = 118;
+    private static int HeaderHeight => Math.Max(58, Theme.Title.Height + 34);
+    private static int SummaryHeight => Math.Max(108, Theme.Small.Height + 4 + Theme.TileValue.Height + 2 + Theme.Small.Height + 36);
+    private static int ChartTopHeight => Math.Max(38, Theme.BodyStrong.Height + 19);
+    private static int LaneHeight => Math.Max(40, Theme.BodyStrong.Height + 20);
+    private static int IntroBarHeight => Math.Max(34, Theme.Body.Height + 14);
+    private int TabStripHeight => Math.Max(43, _spaceTab.Height + 1);
+    private const int WriterBarMax = 200;
     private const int DrawerWidth = 440;
     private const string Loading = "Loading…";
     private const int NarrowWidth = 1100;
-    private static readonly int ProbeRowHeight = Theme.Body.Height + Theme.MonoSmall.Height + 14;
+    private static readonly int ProbeRowHeight = Theme.Body.Height + Theme.MonoSmall.Height + 12;
     private static readonly int DrawerRowHeight = 8 + Theme.Body.Height + 6 + 4 + 6 + Theme.MonoSmall.Height + 10;
 
     private readonly DashboardLoader _loader;
@@ -65,8 +70,9 @@ internal sealed class DashboardForm : Form
     private readonly FormsPlot _plot = new() { Dock = DockStyle.Fill, BackColor = Theme.Card };
     private readonly TipBox _tip = new();
     private readonly RichLine _chartHint = new() { Dock = DockStyle.Fill, Margin = new Padding(14, 0, 8, 0) };
-    private readonly FlowLayoutPanel _lane = new() { Dock = DockStyle.Fill, WrapContents = false, BackColor = Theme.Card, Padding = new Padding(0, 7, 0, 0) };
-    private readonly Label _laneEmpty = new() { AutoSize = true, ForeColor = Theme.Faint, Font = Theme.Small, Margin = new Padding(0, 6, 0, 0), Text = "No Swings in this range" };
+    private readonly FlowLayoutPanel _lane = new() { Dock = DockStyle.Fill, WrapContents = false, BackColor = Theme.Card, Padding = new Padding(0, 6, 0, 0) };
+    private readonly Label _laneEmpty = new() { AutoSize = true, ForeColor = Theme.Faint, Font = Theme.Small, Margin = new Padding(0, 7, 0, 0), Text = "No Swings in this range" };
+    private readonly Label _laneMore = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(4, 7, 0, 0), Cursor = Cursors.Hand, Visible = false };
     private (double From, double To) _tickSpan;
     private ScottPlot.TickGenerators.NumericAutomatic? _yTicks;
     private ScottPlot.Plottables.VerticalLine? _hoverLine;
@@ -89,13 +95,14 @@ internal sealed class DashboardForm : Form
     private readonly DarkListView _swingList = new() { Dock = DockStyle.Fill };
     private readonly RichLine _writersIntro = new() { Dock = DockStyle.Fill };
     private readonly DarkListView _writerList = new() { Dock = DockStyle.Fill };
-    private readonly Label _footer = new() { Dock = DockStyle.Bottom, Height = 24, ForeColor = Theme.Faint, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.Ground, Padding = new Padding(20, 0, 0, 0) };
+    private readonly ContextMenuStrip _writerMenu = new();
+    private readonly Label _footer = new() { Dock = DockStyle.Bottom, Height = 26, ForeColor = Theme.Faint, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft, BackColor = Theme.Ground, Padding = new Padding(20, 0, 0, 4) };
 
     // Swing drawer
-    private readonly Panel _drawer = new() { Visible = false, BackColor = Theme.Card, Padding = new Padding(1, 0, 0, 0) };
-    private readonly Panel _drawerHeader = new() { Dock = DockStyle.Top, BackColor = Theme.Card };
+    private readonly Panel _drawer = new() { Visible = false, BackColor = Theme.Drawer, Padding = new Padding(1, 0, 0, 0) };
+    private readonly Panel _drawerHeader = new() { Dock = DockStyle.Top, BackColor = Theme.Drawer };
     private readonly ToggleButton _drawerClose = new("Close", ToggleLook.Action) { Anchor = AnchorStyles.Top | AnchorStyles.Right, AccessibleName = "Close the Swing drawer (Esc)" };
-    private readonly DarkListView _itemList = new(rowHeight: DrawerRowHeight) { Dock = DockStyle.Fill };
+    private readonly DarkListView _itemList = new(rowHeight: DrawerRowHeight) { Dock = DockStyle.Fill, BackColor = Theme.Drawer, LeadingPadding = 12 };
     private readonly ToggleButton _openLocation = new("Open location", ToggleLook.Primary) { Dock = DockStyle.Fill, Enabled = false, AccessibleName = "Open the selected item's location in Explorer" };
 
     private TableLayoutPanel? _root;
@@ -118,6 +125,7 @@ internal sealed class DashboardForm : Form
     private double? _dragFrom;
     private int _dragStartPx;
     private long? _copiedProbe;
+    private long? _hoverProbeCommandId;
     private SwingRow? _drawerSwing;
     private bool _syncingSelection;
     private string _diagnostics = "";
@@ -379,13 +387,13 @@ internal sealed class DashboardForm : Form
     private void BuildLayout()
     {
         var root = _root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = Theme.Ground, Margin = Padding.Empty };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, SummaryHeight + 14));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 400));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, SummaryHeight + 12));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 320));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.Controls.Add(BuildSummary(), 0, 0);
         root.Controls.Add(BuildChartCard(), 0, 1);
         root.Controls.Add(BuildTabsCard(), 0, 2);
-        var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(24, 16, 24, 2), BackColor = Theme.Ground };
+        var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(24, 14, 24, 2), BackColor = Theme.Ground };
         body.Controls.Add(root);
         BuildDrawer();
 
@@ -398,8 +406,8 @@ internal sealed class DashboardForm : Form
     }
 
     /// <summary>
-    /// Splits the height between the chart and the tabs (about 55/45, never squeezing either below a usable size),
-    /// drops the header's Probe line in a narrow window and the Probe tiles in a short one. Skipped while minimised.
+    /// Splits the height between the chart and the tabs (keeping room for Probe tiles and rows),
+    /// drops the header's Probe line in a narrow window and steps the Probe tiles down in a short one. Skipped while minimised.
     /// </summary>
     private void ApplyProportions()
     {
@@ -409,8 +417,7 @@ internal sealed class DashboardForm : Form
         _probeInfo.Visible = !narrow;
         foreach (var intro in _introBars)
             intro.Visible = !narrow;
-        // Table column widths are device pixels here (the table isn't rescaled after a DPI-aware start): sized for 125%.
-        _summary.ColumnStyles[0].Width = narrow ? 320 : 420;
+        _summary.ColumnStyles[0].Width = LogicalToDeviceUnits(narrow ? 305 : 350);
         if (narrow != _wasNarrow && _last is not null)
         {
             _wasNarrow = narrow;
@@ -418,42 +425,52 @@ internal sealed class DashboardForm : Form
             ShowProbes(_last);
         }
 
-        var available = _root.ClientSize.Height - (SummaryHeight + 14);
+        var summaryRowHeight = SummaryHeight + 12;
+        if (Math.Abs(_root.RowStyles[0].Height - summaryRowHeight) > 0.5f)
+            _root.RowStyles[0].Height = summaryRowHeight;
+
+        var available = _root.ClientSize.Height - summaryRowHeight;
         var barMax = narrow ? 110 : 170;
         if (_probeList.Columns.Count == 4)
         {
-            _probeList.Columns[1].Tag = -(barMax + 10 + TextRenderer.MeasureText("000.0 GB", Theme.Mono).Width + 24);
+            _probeList.Columns[1].Tag = -(barMax + 10 + TextRenderer.MeasureText("000.0 GB", Theme.Mono).Width + 28);
             _probeList.FillLastColumn();
         }
         _probeBarMax = barMax;
-        // Room for the tab strip, column headers and at least two whole Probe rows.
-        var tabsMin = Math.Max(narrow ? 0 : 230, 45 + 32 + (int)(2.2 * ProbeRowHeight) + 8);
-        const int plotMin = 150;
-        var chartMin = _chartCard.Padding.Vertical + ChartTopHeight + LaneHeight + plotMin + 12;
-        var chart = (int)(available * (narrow ? 0.58 : 0.55));
-        chart = Math.Max(chartMin, Math.Min(chart, available - tabsMin));
-        var height = Math.Max(chartMin, chart);
-        // The tiles get two rows when a Probe row (and a bit) still fits under them, else one row when that fits, else
-        // the list stays alone.
-        var tabs = available - height;
-        // The strips and Probe rows are fixed pixel heights (row height comes from the font, already in device pixels).
-        var listRoom = tabs - (45 + (narrow ? 0 : 38) + 32);
-        var vhdxHeight = _vhdxBanner.WantedHeight + 8;
-        _vhdxHolder.Height = vhdxHeight;
-        var full = _tiles.Wanted(compact: false) + LogicalToDeviceUnits(6);
-        var compact = _tiles.Wanted(compact: true) + LogicalToDeviceUnits(6);
+
+        // Card vertical padding (10) + tab strip + intro bar + list header (30).
+        var tabStripH = TabStripHeight;
+        var introH = narrow ? 0 : IntroBarHeight;
+        var tabsChrome = 10 + tabStripH + introH + 30;
         var row = ProbeRowHeight;
-        var showVhdx = _hasVhdxCallout && listRoom - vhdxHeight >= row + 12;
+        // Always reserve room for at least 2 full Probe rows in the bottom card.
+        var tabsMin = tabsChrome + (2 * row) + 4;
+        var plotMin = available < 460 ? 112 : 136;
+        var chartMin = _chartCard.Padding.Vertical + ChartTopHeight + LaneHeight + plotMin + 10;
+        var chartMax = Math.Max(chartMin, (int)(available * 0.45));
+        var chart = Math.Clamp((int)(available * 0.42), chartMin, Math.Min(chartMax, Math.Max(chartMin, available - tabsMin)));
+        // At minimum window heights, never starve the bottom list below 2 rows if the plot still has 104 px.
+        if (available - chart < tabsMin)
+            chart = Math.Max(_chartCard.Padding.Vertical + ChartTopHeight + LaneHeight + 104 + 10, available - tabsMin);
+        var height = chart;
+
+        var tabs = available - height;
+        var listRoom = tabs - tabsChrome;
+        var vhdxHeight = _vhdxBanner.WantedHeight + 6;
+        _vhdxHolder.Height = vhdxHeight;
+        var full = _tiles.Wanted(compact: false) + LogicalToDeviceUnits(4);
+        var compact = _tiles.Wanted(compact: true) + LogicalToDeviceUnits(4);
+        var showVhdx = _hasVhdxCallout && listRoom - vhdxHeight >= (2 * row);
         _vhdxHolder.Visible = showVhdx;
         if (showVhdx)
             listRoom -= vhdxHeight;
-        if (listRoom - full >= row + 20)
+        if (listRoom - full >= (2 * row) + 12)
         {
             _tiles.Compact = false;
             _tilesHolder.Height = full;
             _tilesHolder.Visible = true;
         }
-        else if (listRoom - compact >= row + 20)
+        else if (listRoom - compact >= (2 * row) - 4)
         {
             _tiles.Compact = true;
             _tilesHolder.Height = compact;
@@ -462,6 +479,19 @@ internal sealed class DashboardForm : Form
         else
         {
             _tilesHolder.Visible = false;
+        }
+
+        // Snap the chart height slightly so _probeList fits an integer number of rows without slicing the last visible row in half.
+        var nonListInTabs = 10 + tabStripH + introH + (showVhdx ? vhdxHeight : 0) + (_tilesHolder.Visible ? _tilesHolder.Height : 0);
+        var listHeader = LogicalToDeviceUnits(25);
+        var listHeight = tabs - nonListInTabs;
+        var wholeRows = Math.Max(2, (int)Math.Round((double)(listHeight - listHeader) / row));
+        var snappedTabs = nonListInTabs + listHeader + (wholeRows * row) + 2;
+        var snappedChart = available - snappedTabs;
+        if (snappedChart >= _chartCard.Padding.Vertical + ChartTopHeight + LaneHeight + 112 + 10 && Math.Abs(snappedChart - height) <= 28)
+        {
+            height = snappedChart;
+            tabs = snappedTabs;
         }
         _layoutNote = $"layout {available}: chart {height}, tabs {tabs}, tiles {(_tilesHolder.Visible ? _tiles.Compact ? "compact" : "full" : "hidden")}";
         if (Math.Abs(_root.RowStyles[1].Height - height) > 0.5f)
@@ -503,6 +533,7 @@ internal sealed class DashboardForm : Form
             old?.Dispose();
         }
         SizeLogo();
+        logo.Disposed += (_, _) => logo.Image?.Dispose();
         DpiChanged += (_, _) => SizeLogo();
         var brand = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Band, Margin = new Padding(0, 0, 8, 0) };
         brand.Controls.Add(logo);
@@ -533,8 +564,8 @@ internal sealed class DashboardForm : Form
     /// <summary>The summary row: the gauge card, then four equal tiles.</summary>
     private Control BuildSummary()
     {
-        var row = _summary = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, BackColor = Theme.Ground, Margin = new Padding(0, 0, 0, 14), Padding = Padding.Empty };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 380));
+        var row = _summary = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, BackColor = Theme.Ground, Margin = new Padding(0, 0, 0, 12), Padding = Padding.Empty };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 350));
         for (var i = 0; i < 4; i++)
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
         row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -547,18 +578,16 @@ internal sealed class DashboardForm : Form
         _hero.Set("FREE", "—", Theme.Text, "", null);
         _forecastTile.Set("Full in", "—", "needs 6 h of history", Theme.Muted);
         _swingsTile.Set("Swings", "—", "");
+        _swingsTile.Interactive = true;
         _tips.SetToolTip(_swingsTile, "Click to list them");
         _swingsTile.Cursor = Cursors.Hand;
         _swingsTile.Click += (_, _) => { ShowTab(SwingsTab); SaveSettings(); };
         return row;
     }
 
-    private const int ChartTopHeight = 40;
-    private const int LaneHeight = 44;
-
     private Control BuildChartCard()
     {
-        var card = _chartCard = new CardPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 10, 20, 8), Margin = new Padding(0, 0, 0, 14) };
+        var card = _chartCard = new CardPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 8, 20, 6), Margin = new Padding(0, 0, 0, 12) };
 
         // Top: the title, a hint (or the zoom note) and the range pills.
         var top = new TableLayoutPanel { Dock = DockStyle.Top, Height = ChartTopHeight, ColumnCount = 3, RowCount = 1, BackColor = Theme.Card, Margin = Padding.Empty };
@@ -566,26 +595,28 @@ internal sealed class DashboardForm : Form
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         top.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var title = new Label { Text = "Free space", AutoSize = true, Font = Theme.Section, ForeColor = Theme.Text, BackColor = Theme.Card, Margin = new Padding(0, 9, 0, 0) };
+        var title = new Label { Text = "Free space", AutoSize = true, Font = Theme.Section, ForeColor = Theme.Text, BackColor = Theme.Card, Margin = new Padding(0, 8, 0, 0) };
         top.Controls.Add(title, 0, 0);
         top.Controls.Add(_chartHint, 1, 0);
         var ranges = BuildRangeButtons();
-        ranges.Margin = new Padding(0, 4, 0, 0);
+        ranges.Margin = new Padding(0, 3, 0, 0);
         top.Controls.Add(ranges, 2, 0);
 
-        // Bottom: the Swing lane, one chip per Swing in the range, newest first.
+        // Bottom: the Swing lane, one chip per Swing in the range, ordered left to right like the chart.
         var lane = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = LaneHeight, ColumnCount = 2, RowCount = 1, BackColor = Theme.Card, Margin = Padding.Empty };
         lane.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
         lane.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         lane.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var laneCaption = new Label { Text = "SWINGS", AutoSize = true, Font = Theme.Caption, ForeColor = Theme.Faint, BackColor = Theme.Card, Margin = new Padding(0, 16, 0, 0) };
+        var laneCaption = new Label { Text = "SWINGS", AutoSize = true, Font = Theme.Caption, ForeColor = Theme.Faint, BackColor = Theme.Card, Margin = new Padding(0, 14, 0, 0) };
         lane.Controls.Add(laneCaption, 0, 0);
         lane.Controls.Add(_lane, 1, 0);
         _lane.Margin = Padding.Empty;
         _lane.Controls.Add(_laneEmpty);
+        _laneMore.Click += (_, _) => { ShowTab(SwingsTab); SaveSettings(); };
+        _lane.Controls.Add(_laneMore);
         _lane.Resize += (_, _) => FitLane();
 
-        var gap = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = Theme.Card };
+        var gap = new Panel { Dock = DockStyle.Top, Height = 4, BackColor = Theme.Card };
         _plot.Controls.Add(_tip);
         card.Controls.Add(_plot);
         card.Controls.Add(lane);
@@ -627,9 +658,10 @@ internal sealed class DashboardForm : Form
 
     private Control BuildTabsCard()
     {
-        var card = new CardPanel { Dock = DockStyle.Fill, Padding = new Padding(1), Margin = Padding.Empty };
+        // Inset by (5, 4, 5, 6) so docked child controls stay strictly inside the 12 px rounded border arcs.
+        var card = new CardPanel { Dock = DockStyle.Fill, Padding = new Padding(5, 4, 5, 6), Margin = Padding.Empty };
 
-        var strip = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 45, Padding = new Padding(10, 2, 0, 0), BackColor = Theme.Card, WrapContents = false };
+        var strip = new FlowLayoutPanel { Dock = DockStyle.Top, Height = TabStripHeight, Padding = new Padding(5, 0, 0, 0), BackColor = Theme.Card, WrapContents = false };
         strip.Paint += (_, e) =>
         {
             using var pen = new Pen(Theme.Hairline);
@@ -659,8 +691,8 @@ internal sealed class DashboardForm : Form
     private void BuildSpacePage()
     {
         // Size and Change keep a fixed width (bar + figure); the name and the reclaim hint share what's left.
-        var sizeColumn = 170 + 10 + TextRenderer.MeasureText("000.0 GB", Theme.Mono).Width + 24;
-        var changeColumn = TextRenderer.MeasureText("−00.0 GB", Theme.Mono).Width + 40;
+        var sizeColumn = 170 + 10 + TextRenderer.MeasureText("000.0 GB", Theme.Mono).Width + 28;
+        var changeColumn = TextRenderer.MeasureText("−00.0 GB", Theme.Mono).Width + 44;
         AddColumns(_probeList, ("Probe", 40, HorizontalAlignment.Left), ("Size", -sizeColumn, HorizontalAlignment.Left),
             ("Change", -changeColumn, HorizontalAlignment.Right), ("How to reclaim", 60, HorizontalAlignment.Left));
         _probeList.CellPainter = PaintProbeCell;
@@ -673,8 +705,22 @@ internal sealed class DashboardForm : Form
         };
         _probeList.MouseMove += (_, e) =>
         {
-            var hit = _probeList.HitTest(e.Location);
-            _probeList.Cursor = hit.Item?.Tag is ProbeTag { Hint.Command: not null } && hit.Item.SubItems.IndexOf(hit.SubItem) == 3 ? Cursors.Hand : Cursors.Default;
+            var hitChip = ProbeChipAt(e.Location);
+            var nextHover = hitChip?.Probe.Id;
+            if (_hoverProbeCommandId != nextHover)
+            {
+                _hoverProbeCommandId = nextHover;
+                _probeList.Invalidate();
+            }
+            _probeList.Cursor = nextHover is not null ? Cursors.Hand : Cursors.Default;
+        };
+        _probeList.MouseLeave += (_, _) =>
+        {
+            if (_hoverProbeCommandId is not null)
+            {
+                _hoverProbeCommandId = null;
+                _probeList.Invalidate();
+            }
         };
         _probeList.SelectedIndexChanged += (_, _) => _tiles.SelectedId = SelectedProbe()?.Id;
         _probeList.DoubleClick += (_, _) => OpenPath(SelectedProbe()?.Path);
@@ -697,7 +743,9 @@ internal sealed class DashboardForm : Form
             _probeList.Focus();
         };
         _tiles.Cursor = Cursors.Default;
+        _tilesHolder.Padding = new Padding(15, 2, 15, 2);
         _tilesHolder.Controls.Add(_tiles);
+        _vhdxHolder.Padding = new Padding(15, 3, 15, 3);
         _vhdxBanner.CommandClicked += cmd => CopyText(cmd);
         _vhdxHolder.Controls.Add(_vhdxBanner);
 
@@ -775,21 +823,56 @@ internal sealed class DashboardForm : Form
 
     private void BuildWritersPage()
     {
-        AddColumns(_writerList, ("#", 6, HorizontalAlignment.Left), ("Program", 26, HorizontalAlignment.Left),
-            ("Written", 30, HorizontalAlignment.Left), ("Path", 38, HorizontalAlignment.Left));
+        var writtenColumn = WriterBarMax + 10 + TextRenderer.MeasureText("000.0 GB", Theme.Mono).Width + 28;
+        AddColumns(_writerList, ("#", -52, HorizontalAlignment.Left), ("Program", 34, HorizontalAlignment.Left),
+            ("Written", -writtenColumn, HorizontalAlignment.Left), ("Path", 66, HorizontalAlignment.Left));
         _writerList.MonoColumns.UnionWith([0, 3]);
         _writerList.PathColumns.Add(3);
         _writerList.CellPainter = PaintWriterCell;
         _writerList.ShowItemToolTips = true;
         _writerList.EmptyText = Loading;
+        _writerList.DoubleClick += (_, _) => OpenPath(SelectedWriterPath());
+        _writerList.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+                OpenPath(SelectedWriterPath());
+        };
+        BuildWriterMenu();
+        _writerList.ContextMenuStrip = _writerMenu;
         _writersPage.Controls.Add(_writerList);
         _writersPage.Controls.Add(IntroBar(_writersIntro));
     }
 
+    private void BuildWriterMenu()
+    {
+        _writerMenu.BackColor = Theme.Raised;
+        _writerMenu.ForeColor = Theme.Text;
+        _writerMenu.ShowImageMargin = false;
+        _writerMenu.Renderer = new ToolStripProfessionalRenderer(new MenuColors());
+        var open = new ToolStripMenuItem("Open location") { ForeColor = Theme.Text };
+        var copyPath = new ToolStripMenuItem("Copy path") { ForeColor = Theme.Text };
+        open.Click += (_, _) => OpenPath(SelectedWriterPath());
+        copyPath.Click += (_, _) => CopyText(SelectedWriterPath());
+        _writerMenu.Items.AddRange([open, copyPath]);
+        _writerMenu.Opening += (_, e) =>
+        {
+            var hit = _writerList.HitTest(_writerList.PointToClient(System.Windows.Forms.Cursor.Position));
+            if (hit.Item is not null)
+                hit.Item.Selected = true;
+            if (SelectedWriterPath() is null)
+                e.Cancel = true;
+        };
+    }
+
+    private string? SelectedWriterPath() =>
+        _writerList.SelectedItems.Count > 0 && _writerList.SelectedItems[0].SubItems.Count > 3 && _writerList.SelectedItems[0].SubItems[3].Text is { Length: > 0 } path
+            ? path
+            : null;
+
     /// <summary>A one-line explanation strip above a tab's list, with a hairline under it.</summary>
     private Panel IntroBar(RichLine line)
     {
-        var intro = new Panel { Dock = DockStyle.Top, Height = 38, Padding = new Padding(20, 0, 20, 1), BackColor = Theme.Card };
+        var intro = new Panel { Dock = DockStyle.Top, Height = IntroBarHeight, Padding = new Padding(15, 0, 15, 1), BackColor = Theme.Card };
         intro.Paint += (_, e) =>
         {
             using var pen = new Pen(Theme.Hairline);
@@ -802,6 +885,8 @@ internal sealed class DashboardForm : Form
 
     private void ShowTab(string tab)
     {
+        if (_drawer.Visible && tab != SwingsTab)
+            CloseDrawer();
         _tab = tab;
         _spaceTab.Selected = tab == SpaceTab;
         _swingsTab.Selected = tab == SwingsTab;
@@ -990,7 +1075,7 @@ internal sealed class DashboardForm : Form
         if (_last is not { } s)
             return null;
         var slack = 4 * _plot.DisplayScale;
-        double Px(long ts) => _plot.Plot.GetPixel(new Coordinates(OaDate(ts), 0)).X * _plot.DisplayScale;
+        double Px(long ts) => _plot.Plot.GetPixel(new Coordinates(OaDate(ts), 0)).X;
         return s.Swings
             .Select(w => (Swing: w, From: Px(Math.Max(w.TsStart, s.FromTs)), To: Px(Math.Min(w.TsEnd ?? s.ToTs, s.ToTs))))
             .Where(w => x >= w.From - slack && x <= w.To + slack)
@@ -1000,35 +1085,62 @@ internal sealed class DashboardForm : Form
     }
 
     private Coordinates Coordinates(Point location) =>
-        _plot.Plot.GetCoordinates(new Pixel(location.X / _plot.DisplayScale, location.Y / _plot.DisplayScale));
+        _plot.Plot.GetCoordinates(new Pixel(location.X, location.Y));
 
     private void ShowHover(Point location)
     {
         if (_points.Count == 0 || _hoverLine is null)
             return;
+        var dataRect = _plot.Plot.RenderManager.LastRender.DataRect;
+        if (dataRect.Width > 0 && (location.X < dataRect.Left || location.X > dataRect.Right || location.Y < dataRect.Top || location.Y > dataRect.Bottom))
+        {
+            _plot.Cursor = Cursors.Default;
+            HideHover();
+            _plot.Refresh();
+            return;
+        }
         var swing = SwingAt(location.X);
         _plot.Cursor = swing is null ? Cursors.Cross : Cursors.Hand;
         var x = Coordinates(location).X;
         var i = Nearest(x);
-        var px = _plot.Plot.GetPixel(new Coordinates(OaDate(_points[i].Ts), 0)).X * _plot.DisplayScale;
-        if (Math.Abs(px - location.X) > 40)
+        var px = _plot.Plot.GetPixel(new Coordinates(OaDate(_points[i].Ts), 0)).X;
+        if (Math.Abs(px - location.X) > 40 && swing is null)
         {
             HideHover();
             _plot.Refresh();
             return;
         }
-        var hoverKey = (i * 1000003L) + (swing?.Id ?? 0);
+        var nearPoint = Math.Abs(px - location.X) <= 40;
+        var hoverKey = ((nearPoint ? i : -1) * 1000003L) + (swing?.Id ?? 0);
         if (hoverKey == _hoverIndex)
+        {
+            if (!nearPoint)
+            {
+                var followLeft = location.X + 12;
+                if (followLeft + _tip.Width > _plot.Width - 8)
+                    followLeft = location.X - 12 - _tip.Width;
+                _tip.Location = new Point(Math.Max(4, followLeft), 10);
+            }
             return;
+        }
         _hoverIndex = hoverKey;
         var p = _points[i];
         _hoverLine.X = OaDate(p.Ts);
-        _hoverLine.IsVisible = true;
+        _hoverLine.IsVisible = nearPoint;
         var sub = swing is null ? "" : $"{KindName(swing)} Swing {ShortTime(swing.TsStart)} · click to open";
-        _tip.Set(DateTimeOffset.FromUnixTimeMilliseconds(p.Ts).LocalDateTime.ToString("ddd d MMM, HH:mm", CultureInfo.InvariantCulture), $"{SizeText.Gb(p.FreeBytes)} free", sub);
-        var left = (int)px + 12;
+        if (nearPoint)
+        {
+            _tip.Set(DateTimeOffset.FromUnixTimeMilliseconds(p.Ts).LocalDateTime.ToString("ddd d MMM, HH:mm", CultureInfo.InvariantCulture), $"{SizeText.Gb(p.FreeBytes)} free", sub);
+        }
+        else if (swing is not null)
+        {
+            var free = swing.UsedDeltaBytes is { } used ? $"{SizeText.SignedGb(-used)} free space" : "Still moving";
+            _tip.Set($"{KindName(swing)} Swing · {ShortTime(swing.TsStart)}", free, swing.AcrossDowntime ? "across Downtime · click to open" : "click to open");
+        }
+        var anchorX = nearPoint ? (int)px : location.X;
+        var left = anchorX + 12;
         if (left + _tip.Width > _plot.Width - 8)
-            left = (int)px - 12 - _tip.Width;
+            left = anchorX - 12 - _tip.Width;
         _tip.Location = new Point(Math.Max(4, left), 10);
         _tip.Visible = true;
         _tip.BringToFront();
@@ -1102,9 +1214,9 @@ internal sealed class DashboardForm : Form
         _last = snapshot;
         ShowVolumes(snapshot.Volumes);
         ShowFigures(snapshot);
+        ShowProbes(snapshot);
         _renderWatch = total;
         ShowChart(snapshot);
-        ShowProbes(snapshot);
         ShowSwings(snapshot);
         ShowWriters(snapshot);
         ShowStatus(await ping, snapshot);
@@ -1202,8 +1314,9 @@ internal sealed class DashboardForm : Form
     private void ShowFigures(DashboardSnapshot s)
     {
         var narrow = ClientSize.Width < NarrowWidth;
-        var changeCaption = s.Summary is { } first && first.FirstTs - s.FromTs > 2 * (long)TimeSpan.FromMinutes(10).TotalMilliseconds
-            ? $"Change since {ShortTime(first.FirstTs)}"
+        var shortHistory = s.Summary is { } first && first.FirstTs - s.FromTs > 2 * (long)TimeSpan.FromMinutes(10).TotalMilliseconds;
+        var changeCaption = shortHistory
+            ? $"Change since {ShortTime(s.Summary!.FirstTs)}"
             : $"Change over {s.Range.Label()}";
         ShowForecast(s);
         var open = s.Swings.Count(w => w.Stage != "closed");
@@ -1233,13 +1346,14 @@ internal sealed class DashboardForm : Form
         // More free space is good news (lime), less is growth (pink), matching the chart's Swing colours.
         var changeColor = Math.Abs(sum.ChangeBytes) < Bytes.GB / 20 ? Theme.Text : sum.ChangeBytes > 0 ? Theme.Lime : Theme.Growth;
         _changeTile.Set(changeCaption, SizeText.SignedGb(sum.ChangeBytes), "in free space", changeColor);
-        _lowestTile.Set("Lowest", SizeText.Gb(sum.LowestFreeBytes), $"over {s.Range.Description()}");
+        _lowestTile.Set("Lowest", SizeText.Gb(sum.LowestFreeBytes), shortHistory ? $"since {ShortTime(sum.FirstTs)}" : $"over {s.Range.Description()}");
     }
 
     private void ShowForecast(DashboardSnapshot s)
     {
         if (s.Forecast is not { } f)
         {
+            _tips.SetToolTip(_forecastTile, null);
             _forecastTile.Set("Full in", "—", "needs 6 h of history", Theme.Muted);
             return;
         }
@@ -1274,20 +1388,6 @@ internal sealed class DashboardForm : Form
         var plot = _plot.Plot;
         plot.Clear();
         HideHover();
-
-        foreach (var swing in s.Swings)
-        {
-            var end = swing.TsEnd ?? s.ToTs;
-            var span = plot.Add.HorizontalSpan(OaDate(Math.Max(swing.TsStart, s.FromTs)), OaDate(Math.Min(end, s.ToTs)));
-            var color = Sp(swing.Kind == "growth" ? Theme.Growth : Theme.Release);
-            span.FillStyle.Color = color.WithAlpha(swing.AcrossDowntime ? 0.10 : 0.18);
-            span.LineStyle.Width = 0;
-            if (swing.AcrossDowntime)
-            {
-                span.FillStyle.Hatch = new ScottPlot.Hatches.Striped();
-                span.FillStyle.HatchColor = color.WithAlpha(0.35);
-            }
-        }
 
         _points = s.Runs.SelectMany(r => r).OrderBy(p => p.Ts).ToList();
         var (fromX, toX) = _zoom ?? (OaDate(s.FromTs), OaDate(s.ToTs));
@@ -1324,6 +1424,7 @@ internal sealed class DashboardForm : Form
                     line.LinePattern = LinePattern.Dashed;
                     var tag = plot.Add.Text($"{name} · {SizeText.Gb(bytes)}", fromX, gb);
                     tag.LabelFontColor = Sp(color);
+                    tag.LabelBackgroundColor = Sp(Tint.Over(Theme.PlotGround, Theme.Card, 0.85));
                     tag.LabelFontSize = 11;
                     tag.LabelBold = true;
                     tag.LabelAlignment = Alignment.LowerLeft;
@@ -1360,6 +1461,27 @@ internal sealed class DashboardForm : Form
             empty.Alignment = Alignment.MiddleCenter;
             _yFrame = null;
             plot.Axes.SetLimitsY(0, 1);
+        }
+
+        // Draw Swing spans after the scatter fills so the area fill does not mute the bottom of a Swing band.
+        foreach (var swing in s.Swings)
+        {
+            var end = swing.TsEnd ?? s.ToTs;
+            var span = plot.Add.HorizontalSpan(OaDate(Math.Max(swing.TsStart, s.FromTs)), OaDate(Math.Min(end, s.ToTs)));
+            var kindColor = swing.Kind == "growth" ? Theme.Growth : Theme.Release;
+            span.LineStyle.Width = 0;
+            if (swing.AcrossDowntime)
+            {
+                // SkiaSharp multiplies SKPaint.Color.Alpha with the hatch shader's alpha, so pre-blend opaque colors
+                // against PlotGround to keep the diagonal Downtime stripes crisp and visible.
+                span.FillStyle.Color = Sp(Tint.Over(kindColor, Theme.PlotGround, 0.12));
+                span.FillStyle.Hatch = new ScottPlot.Hatches.Striped();
+                span.FillStyle.HatchColor = Sp(Tint.Over(kindColor, Theme.PlotGround, 0.42));
+            }
+            else
+            {
+                span.FillStyle.Color = Sp(kindColor).WithAlpha(0.20);
+            }
         }
 
         _hoverLine = plot.Add.VerticalLine(fromX);
@@ -1459,13 +1581,14 @@ internal sealed class DashboardForm : Form
         if (item.Tag is not ProbeTag tag)
             return false;
         const TextFormatFlags flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
+        var subFore = item.Selected ? Theme.Muted : Theme.Faint;
         switch (column)
         {
             case 0:
                 var nameHeight = Theme.Body.Height;
                 var top = cell.Y + Math.Max(2, (cell.Height - nameHeight - Theme.MonoSmall.Height - 2) / 2);
                 TextRenderer.DrawText(g, tag.Probe.Name + (tag.Probe.Error is null ? "" : "  ⚠"), Theme.Body, new Rectangle(cell.X, top, cell.Width, nameHeight), tag.Probe.Error is null ? Theme.Text : Theme.Amber, flags);
-                TextRenderer.DrawText(g, tag.Probe.Path, Theme.MonoSmall, new Rectangle(cell.X, top + nameHeight + 2, cell.Width, Theme.MonoSmall.Height + 4), Theme.Faint,
+                TextRenderer.DrawText(g, tag.Probe.Path, Theme.MonoSmall, new Rectangle(cell.X, top + nameHeight + 2, cell.Width, Theme.MonoSmall.Height + 4), subFore,
                     TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPadding);
                 return true;
             case 1:
@@ -1474,7 +1597,8 @@ internal sealed class DashboardForm : Form
             case 2:
                 var change = tag.Probe.ChangeBytes;
                 var color = change is null || Math.Abs(change.Value) < Bytes.MB ? Theme.Muted : change > 0 ? Theme.Growth : Theme.Release;
-                TextRenderer.DrawText(g, item.SubItems[2].Text, Theme.Mono, cell, color, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                var changeCell = cell with { Width = Math.Max(0, cell.Width - 8) };
+                TextRenderer.DrawText(g, item.SubItems[2].Text, Theme.Mono, changeCell, color, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                 return true;
             case 3:
                 if (tag.Hint is null)
@@ -1486,30 +1610,42 @@ internal sealed class DashboardForm : Form
                     var size = TextRenderer.MeasureText(text, Theme.MonoSmall, Size.Empty, TextFormatFlags.NoPadding);
                     var chipHeight = Theme.MonoSmall.Height + 10;
                     var chip = new Rectangle(x, cell.Y + ((cell.Height - chipHeight) / 2), Math.Min(cell.Width, size.Width + 16), chipHeight);
+                    var hovered = _hoverProbeCommandId == tag.Probe.Id;
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                     using (var path = CardPanel.Rounded(chip, 5))
                     {
-                        using var fill = new SolidBrush(Theme.Ground);
+                        using var fill = new SolidBrush(hovered ? Theme.Hover : Theme.Ground);
                         g.FillPath(fill, path);
-                        using var pen = new Pen(Theme.Hairline);
+                        using var pen = new Pen(hovered ? Theme.SelectedEdge : Theme.Hairline);
                         g.DrawPath(pen, path);
                     }
                     TextRenderer.DrawText(g, text, Theme.MonoSmall, Rectangle.Inflate(chip, -8, 0), _copiedProbe == tag.Probe.Id ? Theme.Lime : Theme.Text, flags | TextFormatFlags.VerticalCenter);
                     x = chip.Right + 10;
                 }
                 if (tag.Hint.Note.Length > 0 && x < cell.Right - 20)
-                    TextRenderer.DrawText(g, tag.Hint.Note, Theme.Small, new Rectangle(x, cell.Y, cell.Right - x, cell.Height), Theme.Faint, flags | TextFormatFlags.VerticalCenter);
+                    TextRenderer.DrawText(g, tag.Hint.Note, Theme.Small, new Rectangle(x, cell.Y, cell.Right - x, cell.Height), subFore, flags | TextFormatFlags.VerticalCenter);
                 return true;
         }
         return false;
     }
 
-    private void CopyHint(Point location)
+    private ProbeTag? ProbeChipAt(Point location)
     {
         var hit = _probeList.HitTest(location);
-        if (hit.Item?.Tag is not ProbeTag { Hint.Command: { } command } tag || hit.Item.SubItems.IndexOf(hit.SubItem) != 3)
-            return;
-        CopyCommand(tag, command);
+        if (hit.Item?.Tag is not ProbeTag { Hint.Command: { } command } tag || hit.SubItem is null || hit.Item.SubItems.IndexOf(hit.SubItem) != 3)
+            return null;
+        var text = _copiedProbe == tag.Probe.Id ? "Copied" : command;
+        var size = TextRenderer.MeasureText(text, Theme.MonoSmall, Size.Empty, TextFormatFlags.NoPadding);
+        var cell = hit.SubItem.Bounds;
+        var chipHeight = Theme.MonoSmall.Height + 10;
+        var chip = new Rectangle(cell.X + 12, cell.Y + ((cell.Height - chipHeight) / 2), Math.Min(Math.Max(0, cell.Width - 24), size.Width + 16), chipHeight);
+        return chip.Contains(location) ? tag : null;
+    }
+
+    private void CopyHint(Point location)
+    {
+        if (ProbeChipAt(location) is { Hint.Command: { } command } tag)
+            CopyCommand(tag, command);
     }
 
     /// <summary>Copies a reclaim command and shows "Copied" in its chip for a moment.</summary>
@@ -1523,8 +1659,11 @@ internal sealed class DashboardForm : Form
         reset.Tick += (_, _) =>
         {
             reset.Dispose();
-            _copiedProbe = null;
-            _probeList.Invalidate();
+            if (_copiedProbe == tag.Probe.Id)
+            {
+                _copiedProbe = null;
+                _probeList.Invalidate();
+            }
         };
         reset.Start();
     }
@@ -1586,7 +1725,7 @@ internal sealed class DashboardForm : Form
 
     private static string KindName(SwingRow swing) => swing.Kind == "growth" ? "Growth" : "Release";
 
-    /// <summary>The chart's Swing lane: a chip per Swing, newest first, as many as fit.</summary>
+    /// <summary>The chart's Swing lane: a chip per Swing in chart order (left to right), plus a "+N more" pill when needed.</summary>
     private void ShowLane(DashboardSnapshot s)
     {
         _lane.SuspendLayout();
@@ -1595,7 +1734,7 @@ internal sealed class DashboardForm : Form
             _lane.Controls.Remove(chip);
             chip.Dispose();
         }
-        foreach (var w in s.Swings.OrderByDescending(w => w.TsStart))
+        foreach (var w in s.Swings.OrderBy(w => w.TsStart))
         {
             var free = w.UsedDeltaBytes is { } used ? SizeText.SignedGb(-used) : "…";
             var chip = new SwingChip(w, $"{ShortTime(w.TsStart)}  {KindName(w)}  {free}") { Selected = w.Id == _drawerSwing?.Id };
@@ -1603,23 +1742,49 @@ internal sealed class DashboardForm : Form
             _tips.SetToolTip(chip, w.Stage == "closed" ? "Open to see what changed" : "Still settling; open to follow it");
             _lane.Controls.Add(chip);
         }
+        _lane.Controls.SetChildIndex(_laneMore, _lane.Controls.Count - 1);
         _laneEmpty.Visible = s.Swings.Count == 0;
         _lane.ResumeLayout();
         FitLane();
     }
 
-    /// <summary>Hides the chips that would run past the lane's end, so none is drawn cut off.</summary>
+    /// <summary>Hides the chips that would run past the lane's end and shows "+N more" when any are hidden.</summary>
     private void FitLane()
     {
-        var x = 0;
+        var chips = _lane.Controls.OfType<SwingChip>().ToList();
         var width = _lane.ClientSize.Width;
-        foreach (var chip in _lane.Controls.OfType<SwingChip>())
+        var x = 0;
+        var hidden = 0;
+        foreach (var chip in chips)
         {
             x += chip.Width + chip.Margin.Horizontal;
-            var fits = x <= width;
-            if (chip.Visible != fits)
-                chip.Visible = fits;
+            if (x > width)
+                hidden++;
         }
+        if (hidden == 0)
+        {
+            foreach (var chip in chips)
+                chip.Visible = true;
+            _laneMore.Visible = false;
+            return;
+        }
+
+        // Reserve space for the "+N more" pill and re-measure how many chips fit beside it.
+        _laneMore.Text = $"+{chips.Count} more";
+        var reserve = _laneMore.PreferredSize.Width + _laneMore.Margin.Horizontal;
+        x = 0;
+        hidden = 0;
+        foreach (var chip in chips)
+        {
+            x += chip.Width + chip.Margin.Horizontal;
+            var fits = x + reserve <= width;
+            chip.Visible = fits;
+            if (!fits)
+                hidden++;
+        }
+        _laneMore.Text = $"+{hidden} more";
+        _laneMore.Visible = hidden > 0;
+        _tips.SetToolTip(_laneMore, "Click to view all Swings");
     }
 
     private static bool PaintStageCell(Graphics g, Rectangle cell, ListViewItem item, int column)
@@ -1628,10 +1793,11 @@ internal sealed class DashboardForm : Form
             return false;
         var text = item.SubItems[6].Text;
         var size = TextRenderer.MeasureText(text, Theme.Small, Size.Empty, TextFormatFlags.NoPadding);
-        var pill = new Rectangle(cell.X, cell.Y + ((cell.Height - 20) / 2), size.Width + 16, 20);
+        var pillHeight = Math.Max(20, size.Height + 6);
+        var pill = new Rectangle(cell.X, cell.Y + ((cell.Height - pillHeight) / 2), size.Width + 16, pillHeight);
         var (back, fore) = swing.Stage == "closed" ? (Theme.Grid, Theme.Muted) : (Theme.AmberGround, Theme.Amber);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        using (var path = CardPanel.Rounded(pill, 9))
+        using (var path = CardPanel.Rounded(pill, pillHeight / 2))
         using (var fill = new SolidBrush(back))
             g.FillPath(fill, path);
         TextRenderer.DrawText(g, text, Theme.Small, pill, fore, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -1646,7 +1812,7 @@ internal sealed class DashboardForm : Form
     /// <summary>One row of a Swing's item list. <see cref="Share"/> scales its bar against the largest Probe row.</summary>
     private sealed record DetailRow(string Source, long DeltaBytes, string? Path, double Share);
 
-    private int DrawerHeaderHeight => 18 + 26 + 14 + Theme.Hero.Height + Theme.Small.Height + 14 + DrawerFigureHeight + 16;
+    private int DrawerHeaderHeight => 18 + Math.Max(26, Theme.BodyStrong.Height + 8) + 14 + Theme.Hero.Height + Theme.Small.Height + 14 + DrawerFigureHeight + 16;
 
     private static int DrawerFigureHeight => 10 + Theme.Small.Height + 2 + Theme.Section.Height + 10;
 
@@ -1685,9 +1851,14 @@ internal sealed class DashboardForm : Form
         _tips.SetToolTip(_openLocation, "Open the selected row's folder in Explorer (or select its file). Double-click a row does the same.");
         _openLocation.Click += (_, _) => OpenPath(SelectedItemPath());
 
-        var listHolder = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 8, 0), BackColor = Theme.Card };
+        var listHolder = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 8, 0), BackColor = Theme.Drawer };
         listHolder.Controls.Add(_itemList);
-        var foot = new Panel { Dock = DockStyle.Bottom, Height = 62, Padding = new Padding(20, 12, 20, 16), BackColor = Theme.Card };
+        var foot = new Panel { Dock = DockStyle.Bottom, Height = 62, Padding = new Padding(20, 12, 20, 16), BackColor = Theme.Drawer };
+        foot.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Theme.Hairline);
+            e.Graphics.DrawLine(pen, 20, 0, foot.Width - 20, 0);
+        };
         foot.Controls.Add(_openLocation);
         _drawer.Controls.Add(listHolder);
         _drawer.Controls.Add(foot);
@@ -1787,6 +1958,10 @@ internal sealed class DashboardForm : Form
     {
         _drawer.Visible = false;
         _drawerSwing = null;
+        _syncingSelection = true;
+        foreach (ListViewItem item in _swingList.Items)
+            item.Selected = false;
+        _syncingSelection = false;
         foreach (var chip in _lane.Controls.OfType<SwingChip>())
             chip.Selected = false;
     }
@@ -1794,32 +1969,42 @@ internal sealed class DashboardForm : Form
     private void PaintDrawerHeader(object? sender, PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.Clear(Theme.Card);
+        g.Clear(Theme.Drawer);
+        using (var sep = new Pen(Theme.Hairline))
+            g.DrawLine(sep, 20, _drawerHeader.Height - 1, _drawerHeader.Width - 20, _drawerHeader.Height - 1);
         if (_drawerSwing is not { } swing)
             return;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         const TextFormatFlags flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
         var kind = swing.Kind == "growth" ? Theme.Growth : Theme.Release;
+        var pillHeight = Math.Max(26, Theme.BodyStrong.Height + 8);
 
         // Pills: the kind, the stage, and Downtime when it applies.
         var x = 20;
+        var maxRight = _drawerClose.Left - 8;
         void Pill(string text, Color fore, Color back)
         {
             var size = TextRenderer.MeasureText(text, Theme.BodyStrong, Size.Empty, TextFormatFlags.NoPadding);
-            var pill = new Rectangle(x, 18, size.Width + 22, 26);
-            using (var path = CardPanel.Rounded(pill, 12))
+            var w = Math.Min(size.Width + 22, Math.Max(0, maxRight - x));
+            if (w < 36)
+                return;
+            var pill = new Rectangle(x, 18, w, pillHeight);
+            using (var path = CardPanel.Rounded(pill, pillHeight / 2))
             using (var fill = new SolidBrush(back))
                 g.FillPath(fill, path);
-            TextRenderer.DrawText(g, text, Theme.BodyStrong, pill, fore, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(g, text, Theme.BodyStrong, pill, fore, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             x = pill.Right + 8;
         }
-        Pill($"{KindName(swing)} Swing", kind, Tint.Over(kind, Theme.Card, 0.15));
+        Pill($"{KindName(swing)} Swing", kind, Tint.Over(kind, Theme.Drawer, 0.15));
         var (stageFore, stageBack) = swing.Stage == "closed" ? (Theme.Muted, Theme.Grid) : (Theme.Amber, Theme.AmberGround);
         Pill(swing.Stage switch { "open" => "open", "closing" => "attributing…", _ => "closed" }, stageFore, stageBack);
         if (swing.AcrossDowntime)
-            Pill("across Downtime", Theme.Muted, Theme.Grid);
+        {
+            var fullWidth = TextRenderer.MeasureText("across Downtime", Theme.BodyStrong, Size.Empty, TextFormatFlags.NoPadding).Width + 22;
+            Pill(x + fullWidth <= maxRight ? "across Downtime" : "Downtime ↯", Theme.Muted, Theme.Grid);
+        }
 
-        var y = 18 + 26 + 14;
+        var y = 18 + pillHeight + 14;
         var width = _drawerHeader.ClientSize.Width - 40;
         var change = swing.UsedDeltaBytes is { } used ? SizeText.SignedGb(-used) : "Still moving";
         TextRenderer.DrawText(g, change, Theme.Hero, new Rectangle(18, y, width, Theme.Hero.Height), Theme.Text, flags);
@@ -1831,7 +2016,7 @@ internal sealed class DashboardForm : Form
         TextRenderer.DrawText(g, line, Theme.Small, new Rectangle(20, y, width, Theme.Small.Height + 2), Theme.Muted, flags);
         y += Theme.Small.Height + 14;
 
-        // Attributed and Unaccounted as two small figures.
+        // Attributed and Unaccounted as two small figures (in used space, matching the items below).
         var half = (width - 10) / 2;
         void Figure(int left, string caption, string value)
         {
@@ -1839,7 +2024,7 @@ internal sealed class DashboardForm : Form
             using (var path = CardPanel.Rounded(box, 10))
             using (var fill = new SolidBrush(Theme.PlotGround))
                 g.FillPath(fill, path);
-            TextRenderer.DrawText(g, caption, Theme.Small, new Rectangle(box.X + 12, box.Y + 10, box.Width - 24, Theme.Small.Height), Theme.Muted, flags);
+            TextRenderer.DrawText(g, $"{caption} (used)", Theme.Small, new Rectangle(box.X + 12, box.Y + 10, box.Width - 24, Theme.Small.Height), Theme.Muted, flags);
             TextRenderer.DrawText(g, value, Theme.Section, new Rectangle(box.X + 12, box.Y + 12 + Theme.Small.Height, box.Width - 24, Theme.Section.Height), Theme.Text, flags);
         }
         Figure(20, "Attributed", swing.AttributedBytes is { } a ? SizeText.SignedGb(a) : "—");
@@ -1869,23 +2054,29 @@ internal sealed class DashboardForm : Form
             "unaccounted" => (Theme.Unaccounted, SignedSize(row.DeltaBytes)),
             _ => (row.DeltaBytes >= 0 ? Theme.Growth : Theme.Release, SignedSize(row.DeltaBytes)),
         };
+        var subFore = item.Selected ? Theme.Muted : Theme.Faint;
         var y = cell.Y + 8;
         var changeWidth = TextRenderer.MeasureText(text, Theme.Mono, Size.Empty, TextFormatFlags.NoPadding).Width;
-        const int captionWidth = 84;
-        TextRenderer.DrawText(g, item.Text.ToUpperInvariant(), Theme.Caption, new Rectangle(cell.X, y + 3, captionWidth - 6, Theme.Caption.Height), Theme.Faint, flags);
+        var captionWidth = Math.Max(84, TextRenderer.MeasureText("TOP WRITER", Theme.Caption, Size.Empty, TextFormatFlags.NoPadding).Width + 14);
+        var labelOffset = string.IsNullOrEmpty(item.Text) ? 0 : captionWidth;
+        if (labelOffset > 0)
+            TextRenderer.DrawText(g, item.Text.ToUpperInvariant(), Theme.Caption, new Rectangle(cell.X, y + 3, captionWidth - 6, Theme.Caption.Height), subFore, flags);
         TextRenderer.DrawText(g, item.SubItems[1].Text, row.Source == "unaccounted" ? Theme.BodyStrong : Theme.Body,
-            new Rectangle(cell.X + captionWidth, y, Math.Max(0, cell.Width - captionWidth - changeWidth - 10), Theme.Body.Height), Theme.Text, flags);
+            new Rectangle(cell.X + labelOffset, y, Math.Max(0, cell.Width - labelOffset - changeWidth - 10), Theme.Body.Height), Theme.Text, flags);
         var fore = row.Source is "process" or "unaccounted" ? Theme.Muted : color;
         TextRenderer.DrawText(g, text, Theme.Mono, new Rectangle(cell.Right - changeWidth, y + 1, changeWidth, Theme.Body.Height), fore, flags);
         y += Theme.Body.Height + 6;
         var track = new Rectangle(cell.X, y, cell.Width, 4);
         using (var trackBrush = new SolidBrush(Theme.Grid))
             g.FillRectangle(trackBrush, track);
-        using (var bar = new SolidBrush(color))
+        if (row.Share > 0)
+        {
+            using var bar = new SolidBrush(color);
             g.FillRectangle(bar, track with { Width = Math.Max(2, (int)(track.Width * Math.Min(1, row.Share))) });
+        }
         y += 4 + 6;
-        TextRenderer.DrawText(g, item.SubItems[2].Text, Theme.MonoSmall, new Rectangle(cell.X, y, cell.Width, Theme.MonoSmall.Height + 2), Theme.Faint,
-            TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, item.SubItems[2].Text, Theme.MonoSmall, new Rectangle(cell.X, y, cell.Width, Theme.MonoSmall.Height + 2), subFore,
+            TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.PathEllipsis | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
         return true;
     }
 
@@ -1925,7 +2116,7 @@ internal sealed class DashboardForm : Form
     private void ShowWriters(DashboardSnapshot s)
     {
         _writersIntro.SetParts(
-            ($"Bytes written over {s.Range.Description()}, all drives.   ", Theme.Text, Theme.Body),
+            ($"Bytes written over {s.Range.Description()}, all drives   ·   ", Theme.Text, Theme.Body),
             ("Ranking signal", Theme.Lime, Theme.BodyStrong),
             (", not bytes on disk. The counters also count network and other non-disk I/O.", Theme.Muted, Theme.Body));
         _writerList.BeginUpdate();
@@ -1952,7 +2143,7 @@ internal sealed class DashboardForm : Form
     {
         if (column != 2 || item.Tag is not double share)
             return false;
-        PaintBar(g, cell, share, Theme.Line, item.SubItems[2].Text, ramp: true);
+        PaintBar(g, cell, share, Theme.Line, item.SubItems[2].Text, barMax: WriterBarMax, ramp: true);
         return true;
     }
 
@@ -1963,11 +2154,14 @@ internal sealed class DashboardForm : Form
         var track = new Rectangle(cell.X, cell.Y + (cell.Height / 2) - 4, Math.Clamp(cell.Width - sizeWidth - 10, 0, barMax), 8);
         using (var trackBrush = new SolidBrush(Theme.Grid))
             g.FillRectangle(trackBrush, track);
-        var filled = track with { Width = Math.Max(2, (int)(track.Width * share)) };
-        using (var bar = ramp && track.Width > 0
-            ? (Brush)new System.Drawing.Drawing2D.LinearGradientBrush(track with { Width = track.Width + 1 }, Theme.RampFrom, Theme.RampTo, 0f)
-            : new SolidBrush(color))
+        if (share > 0 && track.Width > 0)
+        {
+            var filled = track with { Width = Math.Max(2, (int)(track.Width * share)) };
+            using var bar = ramp
+                ? (Brush)new System.Drawing.Drawing2D.LinearGradientBrush(track with { Width = track.Width + 1 }, Theme.RampFrom, Theme.RampTo, 0f)
+                : new SolidBrush(color);
             g.FillRectangle(bar, filled);
+        }
         var label = new Rectangle(track.Right + 10, cell.Y, sizeWidth, cell.Height);
         TextRenderer.DrawText(g, text, Theme.Mono, label, Theme.Text,
             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -2021,15 +2215,19 @@ internal sealed class DashboardForm : Form
     {
         var local = DateTimeOffset.FromUnixTimeMilliseconds(ts).LocalDateTime;
         return range is DashboardRange.Hours6 or DashboardRange.Hours24 && local.Date == DateTime.Today
-            ? local.ToString("HH:mm", CultureInfo.CurrentCulture)
-            : local.ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture);
+            ? local.ToString("HH:mm", CultureInfo.InvariantCulture)
+            : local.ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
     }
 
-    /// <summary><c>05:35</c> today, otherwise <c>Tue 05:35</c>.</summary>
+    /// <summary><c>05:35</c> today, <c>Tue 05:35</c> within the past week, otherwise <c>Fri 30 Oct 03:57</c>.</summary>
     private static string ShortTime(long ts)
     {
         var local = DateTimeOffset.FromUnixTimeMilliseconds(ts).LocalDateTime;
-        return local.ToString(local.Date == DateTime.Today ? "HH:mm" : "ddd HH:mm", CultureInfo.CurrentCulture);
+        if (local.Date == DateTime.Today)
+            return local.ToString("HH:mm", CultureInfo.InvariantCulture);
+        if (Math.Abs((DateTime.Today - local.Date).TotalDays) < 6)
+            return local.ToString("ddd HH:mm", CultureInfo.InvariantCulture);
+        return local.ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
     }
 
     private static double OaDate(long ts) => DateTimeOffset.FromUnixTimeMilliseconds(ts).LocalDateTime.ToOADate();
@@ -2042,6 +2240,9 @@ internal sealed class DashboardForm : Form
         {
             _timer.Dispose();
             _tips.Dispose();
+            _probeMenu.Dispose();
+            _writerMenu.Dispose();
+            _footerTip.Dispose();
             _probeList.SmallImageList?.Dispose();
             _swingList.SmallImageList?.Dispose();
             _itemList.SmallImageList?.Dispose();

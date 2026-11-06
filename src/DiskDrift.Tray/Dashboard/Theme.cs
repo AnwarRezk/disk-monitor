@@ -52,7 +52,6 @@ internal static class Theme
     public static readonly Font Caption = new(UiFamily, 7.5f, FontStyle.Bold);
     public static readonly Font Title = new(UiFamily, 13f, FontStyle.Bold);
     public static readonly Font Hero = new(UiFamily, 27f, FontStyle.Bold);
-    public static readonly Font Figure = new(UiFamily, 13f);
     public static readonly Font Mono = new(MonoFamily, 9f);
     public static readonly Font MonoSmall = new(MonoFamily, 8f);
     public static readonly Font Small = new(UiFamily, 8.5f);

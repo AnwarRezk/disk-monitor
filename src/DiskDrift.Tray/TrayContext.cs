@@ -49,13 +49,20 @@ internal sealed class TrayContext : ApplicationContext
         _db = new ReadOnlyDb(_options.DatabasePath);
         _samples = new VolumeSampleStore(_db);
 
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("Open dashboard", null, (_, _) => OpenDashboard());
-        _probeNow = new ToolStripMenuItem("Probe now", null, async (_, _) => await ProbeNowAsync());
+        var menu = new ContextMenuStrip
+        {
+            BackColor = Theme.Raised,
+            ForeColor = Theme.Text,
+            ShowImageMargin = false,
+            Renderer = new ToolStripProfessionalRenderer(new MenuColors()),
+        };
+        var openItem = new ToolStripMenuItem("Open dashboard", null, (_, _) => OpenDashboard()) { ForeColor = Theme.Text, Font = Theme.BodyStrong };
+        menu.Items.Add(openItem);
+        _probeNow = new ToolStripMenuItem("Probe now", null, async (_, _) => await ProbeNowAsync()) { ForeColor = Theme.Text, Font = Theme.Body };
         menu.Items.Add(_probeNow);
-        menu.Items.Add("Open data folder", null, (_, _) => OpenDataFolder());
+        menu.Items.Add(new ToolStripMenuItem("Open data folder", null, (_, _) => OpenDataFolder()) { ForeColor = Theme.Text, Font = Theme.Body });
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) => ExitThread());
+        menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()) { ForeColor = Theme.Text, Font = Theme.Body });
 
         _icon = new NotifyIcon { ContextMenuStrip = menu, Visible = false };
         _icon.DoubleClick += (_, _) => OpenDashboard();
@@ -210,6 +217,7 @@ internal sealed class TrayContext : ApplicationContext
         _timer.Dispose();
         _dashboard?.Close();
         _icon.Visible = false;
+        _icon.ContextMenuStrip?.Dispose();
         _icon.Dispose();
         _currentIcon?.Dispose();
         _uiThread.Dispose();

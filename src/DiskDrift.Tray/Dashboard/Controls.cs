@@ -16,14 +16,12 @@ internal sealed class CardPanel : Panel
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        base.OnPaint(e);
+        e.Graphics.Clear(Parent?.BackColor ?? Theme.Ground);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
         using var path = Rounded(rect, Radius);
-        using var ground = new Region(ClientRectangle);
-        ground.Exclude(path);
-        using var groundBrush = new SolidBrush(Parent?.BackColor ?? Theme.Ground);
-        e.Graphics.FillRegion(groundBrush, ground);
+        using var fill = new SolidBrush(BackColor);
+        e.Graphics.FillPath(fill, path);
         using var pen = new Pen(Theme.Hairline);
         e.Graphics.DrawPath(pen, path);
     }
@@ -116,10 +114,10 @@ internal sealed class ToggleButton : Button
         var text = TextRenderer.MeasureText(Text, Look == ToggleLook.Segment ? Theme.BodyStrong : Font);
         return Look switch
         {
-            ToggleLook.Tab => new Size(text.Width + 24, 42),
-            ToggleLook.Segment => new Size(Math.Max(46, text.Width + 22), 32),
-            ToggleLook.Action or ToggleLook.Primary => new Size(text.Width + 30, 34),
-            _ => new Size(text.Width + 24, 34),
+            ToggleLook.Tab => new Size(text.Width + 24, Math.Max(42, text.Height + 22)),
+            ToggleLook.Segment => new Size(Math.Max(46, text.Width + 22), Math.Max(32, text.Height + 13)),
+            ToggleLook.Action or ToggleLook.Primary => new Size(text.Width + 30, Math.Max(34, text.Height + 15)),
+            _ => new Size(text.Width + 24, Math.Max(34, text.Height + 15)),
         };
     }
 
@@ -217,24 +215,36 @@ internal sealed class DarkListView : ListView
         AutoSize = false, Visible = false, TextAlign = ContentAlignment.MiddleCenter,
         ForeColor = Theme.Muted, BackColor = Theme.Card, Font = Theme.Body,
     };
+    private int _hoverIndex = -1;
 
-    public DarkListView(int rowHeight = 30)
+    public DarkListView(int rowHeight = 0)
     {
         View = View.Details;
         FullRowSelect = true;
         MultiSelect = false;
-        HideSelection = true;
+        HideSelection = false;
         BorderStyle = BorderStyle.None;
         HeaderStyle = ColumnHeaderStyle.Nonclickable;
         OwnerDraw = true;
         BackColor = Theme.Card;
         ForeColor = Theme.Text;
         Font = Theme.Body;
+        var actualRowHeight = rowHeight > 0 ? rowHeight : Math.Max(30, Theme.Body.Height + 12);
         // A 1 px wide image list is the standard way to set a details ListView's row height.
-        SmallImageList = new ImageList { ImageSize = new Size(1, rowHeight) };
+        SmallImageList = new ImageList { ImageSize = new Size(1, actualRowHeight) };
         DoubleBuffered = true;
         Controls.Add(_empty);
     }
+
+    protected override void OnBackColorChanged(EventArgs e)
+    {
+        base.OnBackColorChanged(e);
+        _empty.BackColor = BackColor;
+    }
+
+    /// <summary>Left inset in pixels for the first column, so the list aligns with card headers above it.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int LeadingPadding { get; set; } = 15;
 
     /// <summary>Shown just under the column headers while the list has no rows.</summary>
     [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -258,7 +268,7 @@ internal sealed class DarkListView : ListView
 
     private void PlaceEmpty()
     {
-        const int headerHeight = 30;
+        var headerHeight = HeaderStyle == ColumnHeaderStyle.None ? 0 : Math.Max(30, Theme.Caption.Height + 16);
         _empty.Bounds = new Rectangle(0, headerHeight + 6, ClientSize.Width, Math.Min(56, Math.Max(0, ClientSize.Height - headerHeight - 6)));
     }
 
@@ -330,11 +340,37 @@ internal sealed class DarkListView : ListView
         last.Width = Math.Max(120, ClientSize.Width - others);
     }
 
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        var hit = HitTest(e.Location).Item?.Index ?? -1;
+        SetHoverIndex(hit);
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        SetHoverIndex(-1);
+    }
+
+    private void SetHoverIndex(int index)
+    {
+        if (_hoverIndex == index)
+            return;
+        var prev = _hoverIndex;
+        _hoverIndex = index;
+        if (prev >= 0 && prev < Items.Count)
+            Invalidate(Items[prev].Bounds);
+        if (index >= 0 && index < Items.Count)
+            Invalidate(Items[index].Bounds);
+    }
+
     protected override void OnDrawColumnHeader(DrawListViewColumnHeaderEventArgs e)
     {
-        using var back = new SolidBrush(Theme.Card);
+        using var back = new SolidBrush(BackColor);
         e.Graphics.FillRectangle(back, e.Bounds);
-        var text = new Rectangle(e.Bounds.X + 12, e.Bounds.Y, e.Bounds.Width - 24, e.Bounds.Height);
+        var leftPad = e.ColumnIndex == 0 ? LeadingPadding : 12;
+        var text = new Rectangle(e.Bounds.X + leftPad, e.Bounds.Y, Math.Max(0, e.Bounds.Width - leftPad - 12), e.Bounds.Height);
         TextRenderer.DrawText(e.Graphics, e.Header?.Text.ToUpperInvariant(), Theme.Caption, text, Theme.Muted, Flags(e.Header?.TextAlign ?? HorizontalAlignment.Left));
         using var pen = new Pen(Theme.Hairline);
         e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
@@ -347,17 +383,24 @@ internal sealed class DarkListView : ListView
         if (e.Item is null || e.SubItem is null)
             return;
         var selected = e.Item.Selected;
-        using (var back = new SolidBrush(selected ? Theme.Selected : Theme.Card))
+        var hovered = e.Item.Index == _hoverIndex;
+        using (var back = new SolidBrush(selected ? Theme.Selected : hovered ? Theme.RowHover : BackColor))
             e.Graphics.FillRectangle(back, e.Bounds);
-        using (var divider = new Pen(Theme.Grid))
+        if (e.Item.Index > 0 || HeaderStyle == ColumnHeaderStyle.None)
+        {
+            using var divider = new Pen(Theme.Grid);
             e.Graphics.DrawLine(divider, e.Bounds.Left, e.Bounds.Top, e.Bounds.Right, e.Bounds.Top);
+        }
 
-        var cell = new Rectangle(e.Bounds.X + 12, e.Bounds.Y, e.Bounds.Width - 24, e.Bounds.Height);
+        var leftPad = e.ColumnIndex == 0 ? LeadingPadding : 12;
+        var cell = new Rectangle(e.Bounds.X + leftPad, e.Bounds.Y, Math.Max(0, e.Bounds.Width - leftPad - 12), e.Bounds.Height);
         if (CellPainter?.Invoke(e.Graphics, cell, e.Item, e.ColumnIndex) == true)
             return;
 
         var mono = MonoColumns.Contains(e.ColumnIndex);
-        var color = e.SubItem.ForeColor == ForeColor || e.SubItem.ForeColor.IsEmpty ? (mono ? Theme.Muted : Theme.Text) : e.SubItem.ForeColor;
+        var color = e.SubItem.ForeColor == ForeColor || e.SubItem.ForeColor.IsEmpty
+            ? (selected ? Theme.Text : mono ? Theme.Muted : Theme.Text)
+            : e.SubItem.ForeColor;
         TextRenderer.DrawText(e.Graphics, e.SubItem.Text, mono ? Theme.Mono : Font, cell, color,
             Flags(Columns[e.ColumnIndex].TextAlign) | (PathColumns.Contains(e.ColumnIndex) ? TextFormatFlags.PathEllipsis : TextFormatFlags.EndEllipsis));
     }
@@ -369,175 +412,6 @@ internal sealed class DarkListView : ListView
             HorizontalAlignment.Center => TextFormatFlags.HorizontalCenter,
             _ => TextFormatFlags.Left,
         };
-}
-
-/// <summary>A label drawn without GDI's side padding, so big figures line up flush with the captions above them.</summary>
-internal sealed class TightLabel : Label
-{
-    private const TextFormatFlags Flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
-
-    public TightLabel()
-    {
-        AutoSize = true;
-        Margin = Padding.Empty;
-        Padding = Padding.Empty;
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-    }
-
-    /// <summary>
-    /// Ends at the text's baseline (no room below for descenders, which figures and captions don't have), so labels in
-    /// different sizes sitting on one bottom edge share a baseline.
-    /// </summary>
-    public override Size GetPreferredSize(Size proposedSize)
-    {
-        var size = TextRenderer.MeasureText(Text, Font, Size.Empty, Flags);
-        var family = Font.FontFamily;
-        var ascent = Font.Height * family.GetCellAscent(Font.Style) / (double)family.GetLineSpacing(Font.Style);
-        return new Size(size.Width, (int)Math.Ceiling(ascent) + 1);
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        e.Graphics.Clear(Parent?.BackColor ?? BackColor);
-        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(0, 0, Width, Font.Height), ForeColor, Flags);
-    }
-}
-
-/// <summary>
-/// Lays its children out left to right with a gap, wrapping to new lines when they don't fit, each line aligned on its
-/// bottom edge. <see cref="Trailing"/> sits at the right end of the first line when it fits there, otherwise on a line
-/// of its own. The panel's height follows its content.
-/// </summary>
-internal sealed class WrapRow : Panel
-{
-    public WrapRow()
-    {
-        BackColor = Theme.Card;
-        DoubleBuffered = true;
-    }
-
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int Gap { get; set; } = 28;
-
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int LineGap { get; set; } = 12;
-
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public Control? Trailing { get; set; }
-
-    protected override void OnLayout(LayoutEventArgs levent)
-    {
-        base.OnLayout(levent);
-        var width = ClientSize.Width;
-        if (width <= 0)
-            return;
-        var items = Controls.Cast<Control>().Where(c => c.Visible && c != Trailing).ToList();
-        var lines = new List<List<Control>> { new() };
-        var x = 0;
-        var trailingWidth = Trailing?.Visible == true ? Trailing.PreferredSize.Width : 0;
-        foreach (var c in items)
-        {
-            var size = c.PreferredSize;
-            // The first line keeps room for the trailing control when it can.
-            if (lines[^1].Count > 0 && x + size.Width > width)
-            {
-                lines.Add([]);
-                x = 0;
-            }
-            lines[^1].Add(c);
-            x += size.Width + Gap;
-        }
-
-        // The trailing control (range buttons) ends the last line when it fits there, else gets a line of its own.
-        var lastLineWidth = lines[^1].Sum(c => c.PreferredSize.Width) + (Gap * Math.Max(0, lines[^1].Count - 1));
-        var trailingOnLast = Trailing?.Visible == true && lastLineWidth + Gap + trailingWidth <= width;
-        var y = 0;
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i];
-            var height = line.Count == 0 ? 0 : line.Max(c => c.PreferredSize.Height);
-            var last = i == lines.Count - 1;
-            if (last && trailingOnLast)
-                height = Math.Max(height, Trailing!.PreferredSize.Height);
-            x = 0;
-            foreach (var c in line)
-            {
-                var size = c.PreferredSize;
-                c.Bounds = new Rectangle(x, y + height - size.Height, size.Width, size.Height);
-                x += size.Width + Gap;
-            }
-            if (last && trailingOnLast)
-            {
-                var t = Trailing!.PreferredSize;
-                Trailing.Bounds = new Rectangle(width - t.Width, y + height - t.Height, t.Width, t.Height);
-            }
-            y += height + LineGap;
-        }
-        if (Trailing?.Visible == true && !trailingOnLast)
-        {
-            var t = Trailing.PreferredSize;
-            Trailing.Bounds = new Rectangle(0, y, t.Width, t.Height);
-            y += t.Height + LineGap;
-        }
-        var wanted = Math.Max(0, y - LineGap) + Padding.Vertical;
-        if (Height != wanted)
-            Height = wanted;
-    }
-}
-
-/// <summary>A tinted mini card: caption, a figure and a one-line explanation (the "Full in" forecast).</summary>
-internal sealed class NoteCard : Control
-{
-    private string _caption = "";
-    private string _value = "";
-    private string _detail = "";
-    private Color _accent = Theme.Muted;
-    private Color _ground = Theme.Card;
-    private Color _edge = Theme.Hairline;
-
-    public NoteCard()
-    {
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        Margin = Padding.Empty;
-    }
-
-    public void Set(string caption, string value, string detail, Color accent, Color ground, Color edge)
-    {
-        (_caption, _value, _detail, _accent, _ground, _edge) = (caption, value, detail, accent, ground, edge);
-        AccessibleName = $"{caption} {value}, {detail}";
-        Size = GetPreferredSize(Size.Empty);
-        Invalidate();
-        Parent?.PerformLayout();
-    }
-
-    public override Size GetPreferredSize(Size proposedSize)
-    {
-        const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
-        var w = Math.Max(TextRenderer.MeasureText(_caption, Theme.Caption, Size.Empty, flags).Width,
-            Math.Max(TextRenderer.MeasureText(_value, Theme.ForecastValue, Size.Empty, flags).Width, TextRenderer.MeasureText(_detail, Theme.Small, Size.Empty, flags).Width));
-        return new Size(w + 24, 8 + Theme.Caption.Height + 2 + Theme.ForecastValue.Height + 2 + Theme.Small.Height + 8);
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        var g = e.Graphics;
-        g.Clear(Parent?.BackColor ?? Theme.Card);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        using (var path = CardPanel.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), 8))
-        {
-            using var fill = new SolidBrush(_ground);
-            g.FillPath(fill, path);
-            using var pen = new Pen(_edge);
-            g.DrawPath(pen, path);
-        }
-        const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
-        var y = 8;
-        TextRenderer.DrawText(g, _caption, Theme.Caption, new Rectangle(12, y, Width - 24, Theme.Caption.Height), _accent, flags);
-        y += Theme.Caption.Height + 2;
-        TextRenderer.DrawText(g, _value, Theme.ForecastValue, new Rectangle(12, y, Width - 24, Theme.ForecastValue.Height), _accent, flags);
-        y += Theme.ForecastValue.Height + 2;
-        TextRenderer.DrawText(g, _detail, Theme.Small, new Rectangle(12, y, Width - 24, Theme.Small.Height), Theme.Muted, flags);
-    }
 }
 
 /// <summary>The chart's hover box: a time and a value, drawn as a small violet card that ignores the mouse.</summary>
@@ -561,8 +435,23 @@ internal sealed class TipBox : Control
         var w = Math.Max(TextRenderer.MeasureText(top, Theme.MonoSmall, Size.Empty, flags).Width, TextRenderer.MeasureText(main, Theme.BodyStrong, Size.Empty, flags).Width);
         if (sub.Length > 0)
             w = Math.Max(w, TextRenderer.MeasureText(sub, Theme.Small, Size.Empty, flags).Width);
-        Size = new Size(w + 24, 8 + Theme.MonoSmall.Height + 2 + Theme.BodyStrong.Height + (sub.Length > 0 ? 2 + Theme.Small.Height : 0) + 8);
+        var nextSize = new Size(w + 24, 8 + Theme.MonoSmall.Height + 2 + Theme.BodyStrong.Height + (sub.Length > 0 ? 2 + Theme.Small.Height : 0) + 8);
+        if (Size != nextSize)
+        {
+            Size = nextSize;
+            using var regionPath = CardPanel.Rounded(new Rectangle(0, 0, Width, Height), 8);
+            var oldRegion = Region;
+            Region = new Region(regionPath);
+            oldRegion?.Dispose();
+        }
         Invalidate();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            Region?.Dispose();
+        base.Dispose(disposing);
     }
 
     // Let the chart keep getting mouse moves while the box sits under the cursor.
@@ -580,12 +469,10 @@ internal sealed class TipBox : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.Clear(Theme.PlotGround);
+        g.Clear(Theme.Raised);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         using (var path = CardPanel.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), 8))
         {
-            using var fill = new SolidBrush(Theme.Raised);
-            g.FillPath(fill, path);
             using var pen = new Pen(Theme.StrongEdge);
             g.DrawPath(pen, path);
         }
@@ -600,7 +487,7 @@ internal sealed class TipBox : Control
     }
 }
 
-/// <summary>Context-menu colours in the dashboard's look (the Probe list's right-click menu).</summary>
+/// <summary>Context-menu colours in the dashboard's look (the Probe and Top Writers menus, and the tray menu).</summary>
 internal sealed class MenuColors : ProfessionalColorTable
 {
     public override Color ToolStripDropDownBackground => Theme.Raised;
@@ -613,4 +500,5 @@ internal sealed class MenuColors : ProfessionalColorTable
     public override Color ImageMarginGradientMiddle => Theme.Raised;
     public override Color ImageMarginGradientEnd => Theme.Raised;
     public override Color SeparatorDark => Theme.Hairline;
+    public override Color SeparatorLight => Theme.Raised;
 }
