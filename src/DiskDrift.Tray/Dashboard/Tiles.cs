@@ -102,6 +102,7 @@ internal sealed class StatTile : Control
     private Color _valueColor = Theme.Text;
     private Color _ground = Theme.Card;
     private Color _edge = Theme.Hairline;
+    private bool _hover;
 
     public StatTile(string caption)
     {
@@ -109,6 +110,9 @@ internal sealed class StatTile : Control
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         Margin = Padding.Empty;
     }
+
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Interactive { get; set; }
 
     public void Set(string caption, string value, string detail, Color? valueColor = null, Color? ground = null, Color? edge = null)
     {
@@ -120,22 +124,44 @@ internal sealed class StatTile : Control
         Invalidate();
     }
 
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        base.OnMouseEnter(e);
+        if (Interactive)
+        {
+            _hover = true;
+            Invalidate();
+        }
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hover)
+        {
+            _hover = false;
+            Invalidate();
+        }
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        Tint.Card(g, this, new Rectangle(0, 0, Width - 1, Height - 1), 12, _ground, _edge);
+        var fill = Interactive && _hover ? Theme.Hover : _ground;
+        var edge = Interactive && _hover ? Theme.SelectedEdge : _edge;
+        Tint.Card(g, this, new Rectangle(0, 0, Width - 1, Height - 1), 12, fill, edge);
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
         var width = Math.Max(0, Width - 32);
-        var height = Theme.Small.Height + 6 + Theme.TileValue.Height + 2 + Theme.Small.Height;
-        var y = Math.Max(10, (Height - height) / 2);
+        var height = Theme.Small.Height + 4 + Theme.TileValue.Height + 2 + Theme.Small.Height;
+        var y = Math.Max(8, (Height - height) / 2);
         TextRenderer.DrawText(g, _caption, Theme.Small, new Rectangle(16, y, width, Theme.Small.Height), Theme.Muted, flags);
-        y += Theme.Small.Height + 6;
+        y += Theme.Small.Height + 4;
         // A narrow tile steps the figure down a size before it would have to cut it short.
         bool Fits(Font f) => TextRenderer.MeasureText(_value, f, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width <= width + 1;
         var font = Fits(Theme.TileValue) ? Theme.TileValue : Fits(Theme.ForecastValue) ? Theme.ForecastValue : Theme.Section;
         TextRenderer.DrawText(g, _value, font, new Rectangle(15, y + Theme.TileValue.Height - font.Height, width + 1, font.Height), _valueColor, flags);
         y += Theme.TileValue.Height + 2;
-        TextRenderer.DrawText(g, _detail, Theme.Small, new Rectangle(16, y, width, Theme.Small.Height + 2), Theme.Faint, flags);
+        TextRenderer.DrawText(g, _detail, Theme.Small, new Rectangle(16, y, width, Theme.Small.Height + 2), Theme.Muted, flags);
     }
 }
 
@@ -155,7 +181,8 @@ internal sealed class SwingChip : Button
         Font = Theme.BodyStrong;
         Margin = new Padding(0, 0, 6, 0);
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-        Size = new Size(TextRenderer.MeasureText(text, Font).Width + 22, 30);
+        var measured = TextRenderer.MeasureText(text, Font);
+        Size = new Size(measured.Width + 22, Math.Max(28, measured.Height + 10));
         AccessibleName = $"Open the {(swing.Kind == "growth" ? "Growth" : "Release")} Swing: {text}";
     }
 
@@ -204,14 +231,16 @@ internal sealed class ProbeTiles : Control
 {
     private const int SmallTilesMax = 8;
     private int S(int logical) => (int)Math.Round(logical * DeviceDpi / 96.0);
-    private int TopRow => S(58);
-    private int BottomRow => S(38);
-    private int Gap => S(6);
-    private int MinSmall => S(118);
+    private int TopRow => S(52);
+    private int BottomRow => S(34);
+    private int Gap => S(5);
+    private int MinSmall => S(114);
     private readonly List<(ProbeSize Probe, string Title)> _items = [];
-    private readonly List<(Rectangle Rect, ProbeSize? Probe, string Title, string Size)> _tiles = [];
+    private readonly List<(Rectangle Rect, ProbeSize? Probe, long? ClickId, string Title, string Size, string Tip)> _tiles = [];
+    private readonly ToolTip _tips = new() { InitialDelay = 250 };
     private long? _selected;
     private int _hover = -1;
+    private string _lastTip = "";
 
     public ProbeTiles()
     {
@@ -319,9 +348,16 @@ internal sealed class ProbeTiles : Control
             var w = n == weights.Count - 1 ? width - x : min + (int)(extra * weights[n] / sum);
             var rect = new Rectangle(x, y, Math.Max(1, w), height);
             if (n < row.Count)
-                _tiles.Add((rect, row[n].Probe, row[n].Title, SizeText.Gb(row[n].Probe.SizeBytes)));
+            {
+                var sizeText = SizeText.Gb(row[n].Probe.SizeBytes);
+                _tiles.Add((rect, row[n].Probe, row[n].Probe.Id, row[n].Title, sizeText, $"{row[n].Title}: {sizeText}"));
+            }
             else
-                _tiles.Add((rect, null, $"{more.Count} more", SizeText.Gb(more.Sum(m => m.Probe.SizeBytes))));
+            {
+                var moreSum = SizeText.Gb(more.Sum(m => m.Probe.SizeBytes));
+                var moreTip = string.Join("\n", more.Select(m => $"{m.Title}: {SizeText.Gb(m.Probe.SizeBytes)}"));
+                _tiles.Add((rect, null, more[0].Probe.Id, $"{more.Count} more", moreSum, moreTip));
+            }
             x += w + Gap;
         }
     }
@@ -330,11 +366,17 @@ internal sealed class ProbeTiles : Control
     {
         base.OnMouseMove(e);
         var hit = _tiles.FindIndex(t => t.Rect.Contains(e.Location));
-        Cursor = hit >= 0 && _tiles[hit].Probe is not null ? Cursors.Hand : Cursors.Default;
+        Cursor = hit >= 0 && _tiles[hit].ClickId is not null ? Cursors.Hand : Cursors.Default;
         if (hit != _hover)
         {
             _hover = hit;
             Invalidate();
+        }
+        var tip = hit >= 0 ? _tiles[hit].Tip : "";
+        if (tip != _lastTip)
+        {
+            _lastTip = tip;
+            _tips.SetToolTip(this, tip);
         }
     }
 
@@ -348,8 +390,8 @@ internal sealed class ProbeTiles : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        if (_tiles.FirstOrDefault(t => t.Rect.Contains(e.Location)).Probe is { } probe)
-            TileClicked?.Invoke(probe.Id);
+        if (_tiles.FirstOrDefault(t => t.Rect.Contains(e.Location)).ClickId is { } clickId)
+            TileClicked?.Invoke(clickId);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -360,22 +402,22 @@ internal sealed class ProbeTiles : Control
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
         for (var n = 0; n < _tiles.Count; n++)
         {
-            var (rect, probe, title, size) = _tiles[n];
+            var (rect, probe, clickId, title, size, _) = _tiles[n];
             var big = rect.Height == TopRow && !_compact;
             var selected = probe is not null && probe.Id == _selected;
-            var fill = selected ? Theme.Selected : n == _hover && probe is not null ? Theme.Hover : big ? Tint.Over(Theme.Fill, Theme.Card, 0.22) : Theme.Raised;
+            var fill = selected ? Theme.Selected : n == _hover && clickId is not null ? Theme.Hover : big ? Tint.Over(Theme.Fill, Theme.Card, 0.22) : Theme.Raised;
             using (var path = CardPanel.Rounded(rect with { Width = rect.Width - 1, Height = rect.Height - 1 }, 8))
             {
                 using var brush = new SolidBrush(fill);
                 g.FillPath(brush, path);
-                using var pen = new Pen(selected ? Theme.SelectedEdge : probe is null ? Theme.Hairline : Theme.StrongEdge);
+                using var pen = new Pen(selected ? Theme.SelectedEdge : n == _hover && clickId is not null ? Theme.SelectedEdge : probe is null ? Theme.Hairline : Theme.StrongEdge);
                 g.DrawPath(pen, path);
             }
             var inner = Rectangle.Inflate(rect, -10, 0);
             if (big)
             {
-                TextRenderer.DrawText(g, title, Theme.BodyStrong, new Rectangle(inner.X, rect.Y + 7, inner.Width, Theme.BodyStrong.Height), Theme.Text, flags);
-                TextRenderer.DrawText(g, size, Theme.ForecastValue, new Rectangle(inner.X, rect.Bottom - Theme.ForecastValue.Height - 6, inner.Width, Theme.ForecastValue.Height), Theme.Text, flags);
+                TextRenderer.DrawText(g, title, Theme.BodyStrong, new Rectangle(inner.X, rect.Y + 6, inner.Width, Theme.BodyStrong.Height), Theme.Text, flags);
+                TextRenderer.DrawText(g, size, Theme.ForecastValue, new Rectangle(inner.X, rect.Bottom - Theme.ForecastValue.Height - 5, inner.Width, Theme.ForecastValue.Height), Theme.Text, flags);
             }
             else
             {
@@ -388,6 +430,13 @@ internal sealed class ProbeTiles : Control
                 TextRenderer.DrawText(g, size, Theme.Small, line, Theme.Muted, flags | TextFormatFlags.VerticalCenter | TextFormatFlags.Right);
             }
         }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _tips.Dispose();
+        base.Dispose(disposing);
     }
 }
 
@@ -416,7 +465,7 @@ internal sealed class VirtualDiskBanner : Control
     public event Action<string>? CommandClicked;
 
     /// <summary>Height needed for the two-line callout card in device pixels.</summary>
-    public int WantedHeight => 8 + Math.Max(20, Theme.BodyStrong.Height) + 6 + Theme.MonoSmall.Height + 10 + 8;
+    public int WantedHeight => 6 + Math.Max(20, Theme.BodyStrong.Height) + 5 + (Theme.MonoSmall.Height + 8) + 7;
 
     public void Set(VirtualDiskCallout? callout, bool narrow)
     {
@@ -501,13 +550,14 @@ internal sealed class VirtualDiskBanner : Control
 
         const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter;
         var topHeight = Math.Max(20, Theme.BodyStrong.Height);
-        var y = 8;
+        var y = 6;
         var x = 12;
 
         // Pill: VIRTUAL DISKS
         const string badge = "VIRTUAL DISKS";
         var badgeSize = TextRenderer.MeasureText(g, badge, Theme.Caption, Size.Empty, flags);
-        var pill = new Rectangle(x, y + ((topHeight - 18) / 2), badgeSize.Width + 14, 18);
+        var pillHeight = Math.Max(18, badgeSize.Height + 5);
+        var pill = new Rectangle(x, y + ((topHeight - pillHeight) / 2), badgeSize.Width + 14, pillHeight);
         using (var pillPath = CardPanel.Rounded(pill, 8))
         using (var pillFill = new SolidBrush(Theme.AmberGround))
             g.FillPath(pillFill, pillPath);
@@ -518,23 +568,28 @@ internal sealed class VirtualDiskBanner : Control
         var headWidth = TextRenderer.MeasureText(g, callout.Headline, Theme.BodyStrong, Size.Empty, flags).Width;
         var headRoom = Math.Max(0, box.Right - 12 - x);
         TextRenderer.DrawText(g, callout.Headline, Theme.BodyStrong, new Rectangle(x, y, headRoom, topHeight), Theme.Text, flags | TextFormatFlags.EndEllipsis);
-        x += headWidth + 10;
+        x += headWidth + 8;
 
         // Steady-growth note when there is room
         if (!_narrow && x < box.Right - 80)
         {
-            const string why = "·   .vhdx files grow and never shrink on their own (steady growth, not Swings)";
+            const string why = "·  .vhdx files grow and never shrink on their own (steady growth, not Swings)";
             TextRenderer.DrawText(g, why, Theme.Small, new Rectangle(x, y, box.Right - 12 - x, topHeight), Theme.Muted, flags | TextFormatFlags.EndEllipsis);
         }
 
         // Second line: numbered reclaim steps with clickable command chips
-        y += topHeight + 6;
+        y += topHeight + 5;
         x = 12;
-        var chipHeight = Theme.MonoSmall.Height + 10;
+        var chipHeight = Theme.MonoSmall.Height + 8;
+        var fullNeeded = callout.Steps.Select((s, idx) =>
+            TextRenderer.MeasureText(g, $"{idx + 1}. {s.Label}:", Theme.Small, Size.Empty, flags).Width + 6
+            + TextRenderer.MeasureText(g, s.Command, Theme.MonoSmall, Size.Empty, flags).Width + 16).Sum()
+            + (Math.Max(0, callout.Steps.Count - 1) * 14);
+        var showStepLabels = fullNeeded <= box.Right - 24;
         for (var i = 0; i < callout.Steps.Count; i++)
         {
             var step = callout.Steps[i];
-            var prefix = _narrow ? $"{i + 1}." : $"{i + 1}. {step.Label}:";
+            var prefix = showStepLabels ? $"{i + 1}. {step.Label}:" : $"{i + 1}.";
             var prefixWidth = TextRenderer.MeasureText(g, prefix, Theme.Small, Size.Empty, flags).Width;
             if (x + prefixWidth + 60 > box.Right - 12)
                 break;
@@ -557,7 +612,7 @@ internal sealed class VirtualDiskBanner : Control
                 g.DrawPath(chipPen, chipPath);
             }
             TextRenderer.DrawText(g, cmdText, Theme.MonoSmall, Rectangle.Inflate(chip, -8, 0), copied ? Theme.Lime : Theme.Text, flags | TextFormatFlags.EndEllipsis);
-            x = chip.Right + (_narrow ? 10 : 16);
+            x = chip.Right + (showStepLabels ? 14 : 10);
         }
     }
 
