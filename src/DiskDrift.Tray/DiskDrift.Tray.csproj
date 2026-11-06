@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- SkiaSharp.Views.WindowsForms (ScottPlot's renderer) ships its .NET build for Windows 10 19041+ only. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DiskDrift.Tray</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\..\assets\diskdrift.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.14" />
+    <PackageReference Include="ScottPlot.WinForms" Version="5.1.59" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Logical names are what AppIcons asks for. -->
+    <EmbeddedResource Include="..\..\assets\diskdrift.ico" LogicalName="DiskDrift.Tray.diskdrift.ico" />
+    <EmbeddedResource Include="logo-128.png" LogicalName="DiskDrift.Tray.logo-128.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DiskDrift.Core\DiskDrift.Core.csproj" />
+  </ItemGroup>
+
+</Project>

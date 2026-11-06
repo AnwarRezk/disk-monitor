@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. 0.1.0. Tags the commit v<version> and publishes a GitHub Release with the setup.'
+        required: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore DiskDrift.sln
+
+      - name: Build
+        run: dotnet build DiskDrift.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test DiskDrift.sln --configuration Release --no-build --logger "trx;LogFileName=results.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+
+  installer:
+    needs: build-and-test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $v = $env:INPUT_VERSION }
+          elseif ($env:GITHUB_REF_TYPE -eq 'tag') { $v = $env:GITHUB_REF_NAME.TrimStart('v') }
+          else { $v = "0.0.$env:GITHUB_RUN_NUMBER" }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version '$v' is not major.minor.patch." }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Install Inno Setup
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Publish the apps
+        run: installer/build.ps1 -Version ${{ steps.version.outputs.version }} -SkipCompile
+
+      - name: Upload unsigned apps for signing
+        id: upload-unsigned-apps
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-apps-${{ steps.version.outputs.version }}
+          path: artifacts/publish
+
+      - name: Sign the apps with SignPath
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'diskdrift' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-unsigned-apps.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: artifacts/signed-apps
+
+      - name: Unpack signed apps
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        run: |
+          $zips = Get-ChildItem -Path artifacts/signed-apps -Filter *.zip -ErrorAction SilentlyContinue
+          if ($zips) {
+            foreach ($zip in $zips) { Expand-Archive -Path $zip.FullName -DestinationPath artifacts/publish -Force }
+          } else {
+            Copy-Item -Path artifacts/signed-apps/* -Destination artifacts/publish -Recurse -Force
+          }
+
+      - name: Build the setup
+        run: installer/build.ps1 -Version ${{ steps.version.outputs.version }} -SkipPublish
+
+      - name: Upload the setup
+        id: upload-setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiskDrift-Setup-${{ steps.version.outputs.version }}
+          path: artifacts/installer/DiskDrift-Setup-*.exe
+
+      - name: Sign the setup with SignPath
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'diskdrift' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: artifacts/signed-installer
+
+      - name: Unpack signed setup
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        run: |
+          $zips = Get-ChildItem -Path artifacts/signed-installer -Filter *.zip -ErrorAction SilentlyContinue
+          if ($zips) {
+            foreach ($zip in $zips) { Expand-Archive -Path $zip.FullName -DestinationPath artifacts/installer -Force }
+          } else {
+            Copy-Item -Path artifacts/signed-installer/* -Destination artifacts/installer -Recurse -Force
+          }
+
+      - name: Publish the release
+        if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: DiskDrift ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: artifacts/installer/DiskDrift-Setup-*.exe
