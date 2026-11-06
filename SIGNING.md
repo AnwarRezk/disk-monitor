@@ -13,8 +13,7 @@ Release builds in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) sign:
 
 - `DiskDrift.Collector.exe` (Windows Service collector)
 - `DiskDrift.Tray.exe` (system tray and dashboard application)
-- The Inno Setup uninstaller (`SignedUninstaller=yes` in [`installer/DiskDrift.iss`](installer/DiskDrift.iss))
-- `DiskDrift-Setup-<version>.exe`
+- `DiskDrift-Setup-<version>.exe` (Inno Setup installer; local builds also support `SignedUninstaller=yes` via `installer/build.ps1 -SignCommand`)
 
 ## Privacy policy
 

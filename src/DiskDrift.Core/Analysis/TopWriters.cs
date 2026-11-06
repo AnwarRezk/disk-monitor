@@ -28,7 +28,7 @@ public sealed record ProcessIoDelta(string Name, string? ExePath, long WriteByte
 /// identity of a <c>processes</c> row) before the minimum and the top-N cut, so a program that runs as several
 /// processes gets one row.
 /// </remarks>
-public sealed class TopWriterTracker
+public sealed class TopWriterTracker(string usersRoot = ProbeExpander.DefaultUsersRoot)
 {
     private Dictionary<ProcessKey, (ulong Read, ulong Write)> _previous = [];
     private long? _previousTs;
@@ -66,7 +66,7 @@ public sealed class TopWriterTracker
                 continue;
             }
 
-            var exePath = ProbeExpander.ToUserTemplate(s.ExePath);
+            var exePath = ProbeExpander.ToUserTemplate(s.ExePath, usersRoot);
             var program = (s.Name, exePath);
             programs[program] = programs.TryGetValue(program, out var sum)
                 ? sum with { WriteBytes = Add(sum.WriteBytes, write), ReadBytes = Add(sum.ReadBytes, read) }

@@ -93,13 +93,83 @@ public sealed class ProbeExpander(string usersRoot)
 
         var rest = normPath[prefix.Length..];
         var sep = rest.IndexOf(System.IO.Path.DirectorySeparatorChar);
-        if (sep <= 0)
+        if (sep == 0)
             return path;
 
-        var profile = rest[..sep];
-        return ExcludedProfiles.Contains(profile)
-            ? path
+        var profile = sep < 0 ? rest : rest[..sep];
+        if (ExcludedProfiles.Contains(profile))
+            return path;
+
+        return sep < 0
+            ? ProbeDefinition.UserTemplate
             : ProbeDefinition.UserTemplate + rest[sep..];
+    }
+
+    /// <summary>
+    /// Replaces occurrences of <c>&lt;usersRoot&gt;\&lt;profile&gt;</c> inside free-form text (such as exception
+    /// messages) with <c>{user}</c>, leaving <see cref="ExcludedProfiles"/> untouched.
+    /// </summary>
+    public static string? ScrubUserPaths(string? text, string usersRoot = DefaultUsersRoot)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        var prefix = NormalizeSeparators(usersRoot.Trim()).TrimEnd(System.IO.Path.DirectorySeparatorChar)
+            + System.IO.Path.DirectorySeparatorChar;
+        var current = NormalizeSeparators(text);
+        var searchFrom = 0;
+        while (searchFrom < current.Length)
+        {
+            var idx = current.IndexOf(prefix, searchFrom, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+                break;
+
+            var profileStart = idx + prefix.Length;
+            var nextSep = current.IndexOf(System.IO.Path.DirectorySeparatorChar, profileStart);
+            int profileEnd;
+            if (nextSep > profileStart && !current.AsSpan(profileStart, nextSep - profileStart).ContainsAny("'\"\r\n"))
+            {
+                profileEnd = nextSep;
+            }
+            else if (idx > 0 && current[idx - 1] is '\'' or '"' && current.IndexOf(current[idx - 1], profileStart) is var closeQuote && closeQuote > profileStart
+                && !current.AsSpan(profileStart, closeQuote - profileStart).ContainsAny('\r', '\n'))
+            {
+                profileEnd = closeQuote;
+            }
+            else if (ExcludedProfiles.FirstOrDefault(p =>
+                current.AsSpan(profileStart).StartsWith(p, StringComparison.OrdinalIgnoreCase)
+                && (profileStart + p.Length == current.Length || !char.IsLetterOrDigit(current[profileStart + p.Length]))) is { } excluded)
+            {
+                profileEnd = profileStart + excluded.Length;
+            }
+            else
+            {
+                profileEnd = profileStart;
+                while (profileEnd < current.Length
+                    && current[profileEnd] != System.IO.Path.DirectorySeparatorChar
+                    && current[profileEnd] != '\''
+                    && current[profileEnd] != '"'
+                    && !char.IsWhiteSpace(current[profileEnd]))
+                {
+                    profileEnd++;
+                }
+                while (profileEnd > profileStart && current[profileEnd - 1] is '.' or ',' or ':' or ';' or ')' or ']' or '!' or '?')
+                {
+                    profileEnd--;
+                }
+            }
+
+            var profile = current[profileStart..profileEnd];
+            if (profile.Length == 0 || ExcludedProfiles.Contains(profile))
+            {
+                searchFrom = profileEnd;
+                continue;
+            }
+
+            current = string.Concat(current.AsSpan(0, idx), ProbeDefinition.UserTemplate, current.AsSpan(profileEnd));
+            searchFrom = idx + ProbeDefinition.UserTemplate.Length;
+        }
+        return current;
     }
 
     /// <summary>

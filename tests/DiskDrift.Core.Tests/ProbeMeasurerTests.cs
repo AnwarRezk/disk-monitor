@@ -30,7 +30,7 @@ public sealed class ProbeMeasurerTests : IDisposable
         if (OperatingSystem.IsWindows())
             File.SetAttributes(hidden, FileAttributes.Hidden | FileAttributes.System);
 
-        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "dir"), Generous);
+        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "dir"), Generous, TestContext.Current.CancellationToken);
 
         Assert.Equal(400, m.SizeBytes);
         Assert.Equal(3, m.FileCount);
@@ -40,10 +40,11 @@ public sealed class ProbeMeasurerTests : IDisposable
     [Fact]
     public void Missing_paths_measure_zero_without_an_error()
     {
-        Assert.Equal(ProbeMeasurement.Missing with { DurationMs = 0 }, ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "nope"), Generous) with { DurationMs = 0 });
-        Assert.Equal(0, ProbeMeasurer.Measure(Probe(ProbeKind.File, Path.Combine("nope", "x.sys")), Generous).SizeBytes);
-        Assert.Null(ProbeMeasurer.Measure(Probe(ProbeKind.File, "x.sys"), Generous).Error);
-        Assert.Null(ProbeMeasurer.Measure(Probe(ProbeKind.Glob, Path.Combine("*", "x")), Generous).Error);
+        var ct = TestContext.Current.CancellationToken;
+        Assert.Equal(ProbeMeasurement.Missing with { DurationMs = 0 }, ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "nope"), Generous, ct) with { DurationMs = 0 });
+        Assert.Equal(0, ProbeMeasurer.Measure(Probe(ProbeKind.File, Path.Combine("nope", "x.sys")), Generous, ct).SizeBytes);
+        Assert.Null(ProbeMeasurer.Measure(Probe(ProbeKind.File, "x.sys"), Generous, ct).Error);
+        Assert.Null(ProbeMeasurer.Measure(Probe(ProbeKind.Glob, Path.Combine("*", "x")), Generous, ct).Error);
     }
 
     [Fact]
@@ -53,7 +54,7 @@ public sealed class ProbeMeasurerTests : IDisposable
         if (OperatingSystem.IsWindows())
             File.SetAttributes(path, FileAttributes.Hidden | FileAttributes.System);
 
-        var m = ProbeMeasurer.Measure(Probe(ProbeKind.File, "pagefile.sys"), Generous);
+        var m = ProbeMeasurer.Measure(Probe(ProbeKind.File, "pagefile.sys"), Generous, TestContext.Current.CancellationToken);
 
         Assert.Equal(4096, m.SizeBytes);
         Assert.Equal(1, m.FileCount);
@@ -66,7 +67,7 @@ public sealed class ProbeMeasurerTests : IDisposable
         Write(Path.Combine("Packages", "CanonicalGroup.Debian", "LocalState", "ext4.vhdx"), 500);
         Write(Path.Combine("Packages", "Other", "LocalState", "ext4.vhdx"), 77);
 
-        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Glob, Path.Combine("Packages", "*canonicalgroup*", "LocalState")), Generous);
+        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Glob, Path.Combine("Packages", "*canonicalgroup*", "LocalState")), Generous, TestContext.Current.CancellationToken);
 
         Assert.Equal(1500, m.SizeBytes);
         Assert.Equal(2, m.FileCount);
@@ -95,7 +96,7 @@ public sealed class ProbeMeasurerTests : IDisposable
         var target = Path.Combine(_temp.Path, "loop");
         CreateJunction(Path.Combine(target, "self"), target);
 
-        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "loop"), Generous);
+        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "loop"), Generous, TestContext.Current.CancellationToken);
 
         Assert.Equal(123, m.SizeBytes);
         Assert.Equal(1, m.FileCount);
@@ -108,7 +109,7 @@ public sealed class ProbeMeasurerTests : IDisposable
         for (var i = 0; i < 20; i++)
             Write(Path.Combine("big", $"{i}.bin"), 10);
 
-        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "big"), TimeSpan.Zero);
+        var m = ProbeMeasurer.Measure(Probe(ProbeKind.Dir, "big"), TimeSpan.Zero, TestContext.Current.CancellationToken);
 
         Assert.Contains("timed out", m.Error);
         Assert.Equal(1, m.FileCount);

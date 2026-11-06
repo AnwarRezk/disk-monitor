@@ -132,7 +132,7 @@ dotnet run --project src/DiskDrift.Tray          # Tray (normal terminal)
 
 ## Privacy and code signing
 
- DiskDrift runs locally and makes no network requests. The Collector sums per-user Probes across profiles under a single
+DiskDrift runs locally and makes no network requests. The Collector sums per-user Probes across profiles under a single
 `{user}\…` template path (which resolves to the signed-in user's profile when you click **Open location**), so local
 usernames and another user's individual folder sizes are never written to `diskdrift.db`.
 

@@ -231,7 +231,11 @@ internal sealed class DashboardForm : Form
                 form.Close();
                 if (!useLive && Path.GetDirectoryName(dbPath) is { } tempDir)
                 {
-                    try { Directory.Delete(tempDir, recursive: true); }
+                    try
+                    {
+                        SqliteConnection.ClearAllPools();
+                        Directory.Delete(tempDir, recursive: true);
+                    }
                     catch (IOException) { }
                 }
             }

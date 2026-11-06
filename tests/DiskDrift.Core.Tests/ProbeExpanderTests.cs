@@ -118,8 +118,36 @@ public sealed class ProbeExpanderTests : IDisposable
         Assert.Equal(
             @"{user}\AppData\Local\Programs\App.exe",
             ProbeExpander.ToUserTemplate(@"C:\Users\alice\AppData\Local\Programs\App.exe")?.Replace('/', '\\'));
+        Assert.Equal("{user}", ProbeExpander.ToUserTemplate(@"C:\Users\alice"));
+        Assert.Equal(@"C:\Users\Public", ProbeExpander.ToUserTemplate(@"C:\Users\Public"));
         Assert.Equal(@"C:\Users\Public\Desktop\App.exe", ProbeExpander.ToUserTemplate(@"C:\Users\Public\Desktop\App.exe"));
         Assert.Equal(@"C:\Program Files\App\App.exe", ProbeExpander.ToUserTemplate(@"C:\Program Files\App\App.exe"));
         Assert.Null(ProbeExpander.ToUserTemplate(null));
+    }
+
+    [Fact]
+    public void Scrub_user_paths_redacts_profile_paths_inside_error_messages()
+    {
+        Assert.Equal(
+            @"Access to the path '{user}\AppData\Local\Temp' is denied.",
+            ProbeExpander.ScrubUserPaths(@"Access to the path 'C:\Users\alice\AppData\Local\Temp' is denied.")?.Replace('/', '\\'));
+        Assert.Equal(
+            @"Access to the path '{user}\AppData\Local\Temp' is denied.",
+            ProbeExpander.ScrubUserPaths(@"Access to the path 'C:\Users\John Doe\AppData\Local\Temp' is denied.")?.Replace('/', '\\'));
+        Assert.Equal(
+            @"Access to the path '{user}' is denied.",
+            ProbeExpander.ScrubUserPaths(@"Access to the path 'C:\Users\John Doe' is denied.")?.Replace('/', '\\'));
+        Assert.Equal(
+            @"Cannot open {user}.",
+            ProbeExpander.ScrubUserPaths(@"Cannot open C:\Users\alice.")?.Replace('/', '\\'));
+        Assert.Equal(
+            @"Access to the path 'C:\Users\Public\Documents' is denied.",
+            ProbeExpander.ScrubUserPaths(@"Access to the path 'C:\Users\Public\Documents' is denied.")?.Replace('/', '\\'));
+        Assert.Equal(
+            @"Access to the path 'C:\Users\All Users\AppData' is denied.",
+            ProbeExpander.ScrubUserPaths(@"Access to the path 'C:\Users\All Users\AppData' is denied.")?.Replace('/', '\\'));
+        Assert.Equal(
+            @"Cannot open C:\Users\Public.",
+            ProbeExpander.ScrubUserPaths(@"Cannot open C:\Users\Public.")?.Replace('/', '\\'));
     }
 }

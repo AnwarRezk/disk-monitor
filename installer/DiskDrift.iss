@@ -41,7 +41,7 @@ SolidCompression=yes
 CloseApplications=no
 RestartApplications=no
 #ifdef SignCommand
-SignTool=sign $f
+SignTool=sign
 SignedUninstaller=yes
 #endif
 

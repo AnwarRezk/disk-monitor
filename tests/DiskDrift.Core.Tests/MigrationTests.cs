@@ -129,7 +129,7 @@ public sealed class MigrationTests : IDisposable
             (2, 'User Temp (bob)', 'dir', 'C:\Users\bob\AppData\Local\Temp', 'C:'),
             (3, 'Windows Temp', 'dir', 'C:\Windows\Temp', 'C:');
             INSERT INTO probe_samples (ts, probe_id, size_bytes, file_count, duration_ms, error) VALUES
-            (1000, 1, 200, 2, 10, NULL),
+            (1000, 1, 200, 2, 10, 'Access to ''c:\users\alice\AppData\Local\Temp'' denied'),
             (1000, 2, 300, 5, 15, NULL),
             (1000, 3, 50, 1, 5, NULL);
             INSERT INTO processes (id, name, exe_path) VALUES
@@ -137,39 +137,43 @@ public sealed class MigrationTests : IDisposable
             (2, 'Code.exe', 'C:\Users\bob\AppData\Local\Programs\Microsoft VS Code\Code.exe');
             INSERT INTO process_io_samples (ts, process_id, write_bytes_delta, read_bytes_delta) VALUES
             (1000, 1, 100, 10),
-            (2000, 2, 250, 20);
+            (1000, 2, 250, 20);
             INSERT INTO swings (id, volume, kind, stage, ts_start, ts_end) VALUES
             (1, 'C:', 'growth', 'closed', 500, 1500);
             INSERT INTO swing_items (swing_id, source, label, path, delta_bytes, rank) VALUES
             (1, 'probe', 'User Temp (alice)', 'C:\Users\alice\AppData\Local\Temp', 200, 1),
+            (1, 'probe', 'User Temp (bob)', 'C:\Users\bob\AppData\Local\Temp', 300, 2),
             (1, 'process', 'Code.exe', 'C:\Users\alice\AppData\Local\Programs\Microsoft VS Code\Code.exe', 100, 1);
             """);
 
         Migrator.Apply(connection, Migrator.All);
 
-        var probes = connection.Query<(string Name, string Path, long Size, long? Files)>(
+        var probes = connection.Query<(string Name, string Path, long Size, long? Files, string? Error)>(
             """
-            SELECT p.name, p.path, s.size_bytes, s.file_count
+            SELECT p.name, p.path, s.size_bytes, s.file_count, s.error
             FROM probes p JOIN probe_samples s ON s.probe_id = p.id
             ORDER BY p.name
             """).ToArray();
         Assert.Equal(
             [
-                ("User Temp", @"{user}\AppData\Local\Temp", 500L, (long?)7),
-                ("Windows Temp", @"C:\Windows\Temp", 50L, (long?)1),
+                ("User Temp", @"{user}\AppData\Local\Temp", 500L, (long?)7, @"Access to '{user}\AppData\Local\Temp' denied"),
+                ("Windows Temp", @"C:\Windows\Temp", 50L, (long?)1, (string?)null),
             ],
             probes);
 
-        var processes = connection.Query<(string Name, string? ExePath)>(
-            "SELECT name, exe_path FROM processes").ToArray();
-        Assert.Equal([("Code.exe", @"{user}\AppData\Local\Programs\Microsoft VS Code\Code.exe")], processes);
+        var processes = connection.Query<(string Name, string? ExePath, long Write, long Read)>(
+            """
+            SELECT p.name, p.exe_path, s.write_bytes_delta, s.read_bytes_delta
+            FROM processes p JOIN process_io_samples s ON s.process_id = p.id
+            """).ToArray();
+        Assert.Equal([("Code.exe", @"{user}\AppData\Local\Programs\Microsoft VS Code\Code.exe", 350L, 30L)], processes);
 
-        var items = connection.Query<(string Source, string Label, string? Path)>(
-            "SELECT source, label, path FROM swing_items ORDER BY source").ToArray();
+        var items = connection.Query<(string Source, string Label, string? Path, long Delta, long Rank)>(
+            "SELECT source, label, path, delta_bytes, rank FROM swing_items ORDER BY source").ToArray();
         Assert.Equal(
             [
-                ("probe", "User Temp", @"{user}\AppData\Local\Temp"),
-                ("process", "Code.exe", @"{user}\AppData\Local\Programs\Microsoft VS Code\Code.exe"),
+                ("probe", "User Temp", @"{user}\AppData\Local\Temp", 500L, 1L),
+                ("process", "Code.exe", @"{user}\AppData\Local\Programs\Microsoft VS Code\Code.exe", 100L, 1L),
             ],
             items);
     }

@@ -77,7 +77,7 @@ jobs:
 
       - name: Sign the apps with SignPath
         if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -85,7 +85,17 @@ jobs:
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
           github-artifact-id: ${{ steps.upload-unsigned-apps.outputs.artifact-id }}
           wait-for-completion: true
-          output-artifact-directory: artifacts/publish
+          output-artifact-directory: artifacts/signed-apps
+
+      - name: Unpack signed apps
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        run: |
+          $zips = Get-ChildItem -Path artifacts/signed-apps -Filter *.zip -ErrorAction SilentlyContinue
+          if ($zips) {
+            foreach ($zip in $zips) { Expand-Archive -Path $zip.FullName -DestinationPath artifacts/publish -Force }
+          } else {
+            Copy-Item -Path artifacts/signed-apps/* -Destination artifacts/publish -Recurse -Force
+          }
 
       - name: Build the setup
         run: installer/build.ps1 -Version ${{ steps.version.outputs.version }} -SkipPublish
@@ -99,7 +109,7 @@ jobs:
 
       - name: Sign the setup with SignPath
         if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -107,7 +117,17 @@ jobs:
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
           github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
           wait-for-completion: true
-          output-artifact-directory: artifacts/installer
+          output-artifact-directory: artifacts/signed-installer
+
+      - name: Unpack signed setup
+        if: (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        run: |
+          $zips = Get-ChildItem -Path artifacts/signed-installer -Filter *.zip -ErrorAction SilentlyContinue
+          if ($zips) {
+            foreach ($zip in $zips) { Expand-Archive -Path $zip.FullName -DestinationPath artifacts/installer -Force }
+          } else {
+            Copy-Item -Path artifacts/signed-installer/* -Destination artifacts/installer -Recurse -Force
+          }
 
       - name: Publish the release
         if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'

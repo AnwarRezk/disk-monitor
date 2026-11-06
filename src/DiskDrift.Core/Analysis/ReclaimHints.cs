@@ -22,8 +22,8 @@ public sealed record VirtualDiskCallout(
     IReadOnlyList<ReclaimStep> Steps);
 
 /// <summary>
-/// Reclaim hints for the default Probes, keyed by their configured name. Per-user Probes are stored as
-/// "Name (user)", so the suffix is ignored. Commands are only suggested, never run.
+/// Reclaim hints for the default Probes, keyed by their configured name (with any legacy <c>(user)</c> suffix
+/// ignored). Commands are only suggested, never run.
 /// </summary>
 public static partial class ReclaimHints
 {

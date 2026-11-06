@@ -36,10 +36,11 @@ public static class ProbeMeasurer
         var deadline = new Deadline(started, timeout, token);
         var total = new Total();
         string? error = null;
+        var effectiveExpander = expander ?? new ProbeExpander(ProbeExpander.DefaultUsersRoot);
         try
         {
             var paths = probe.Path.Contains(ProbeDefinition.UserTemplate, StringComparison.OrdinalIgnoreCase)
-                ? (expander ?? new ProbeExpander(ProbeExpander.DefaultUsersRoot)).ExpandPaths(probe.Path)
+                ? effectiveExpander.ExpandPaths(probe.Path)
                 : [probe.Path];
             foreach (var path in paths)
             {
@@ -56,7 +57,7 @@ public static class ProbeMeasurer
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            error = ex.Message;
+            error = ProbeExpander.ScrubUserPaths(ex.Message, effectiveExpander.UsersRoot);
         }
 
         token.ThrowIfCancellationRequested();
