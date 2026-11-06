@@ -217,6 +217,7 @@ internal sealed class TrayContext : ApplicationContext
         _timer.Dispose();
         _dashboard?.Close();
         _icon.Visible = false;
+        _icon.ContextMenuStrip?.Dispose();
         _icon.Dispose();
         _currentIcon?.Dispose();
         _uiThread.Dispose();

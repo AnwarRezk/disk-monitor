@@ -447,6 +447,13 @@ internal sealed class TipBox : Control
         Invalidate();
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            Region?.Dispose();
+        base.Dispose(disposing);
+    }
+
     // Let the chart keep getting mouse moves while the box sits under the cursor.
     protected override void WndProc(ref Message m)
     {
